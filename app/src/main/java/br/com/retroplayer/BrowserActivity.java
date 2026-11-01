@@ -1,258 +1,458 @@
 package br.com.retroplayer;
+
 import android.app.*;
-import android.os.*;
 import android.content.*;
-import android.graphics.Color;
 import android.net.Uri;
+import android.os.*;
 import android.view.*;
+import android.view.inputmethod.InputMethodManager;
 import android.webkit.*;
 import android.widget.*;
+import java.util.*;
 
 public class BrowserActivity extends Activity {
+  BrowserSession session;
   WebView web;
   EditText address;
   TextView status;
   ProgressBar progress;
   FrameLayout holder;
+  ScrollView home;
+  ImageView star;
   View fullscreen;
   WebChromeClient.CustomViewCallback fullscreenCallback;
-  int dark = Color.rgb(14, 16, 23), lime = Color.rgb(201, 255, 102);
+  boolean resumed;
   int dp(int n) {
-    return (int) (n * getResources().getDisplayMetrics().density);
-  }
-  Button button(String label, Runnable action) {
-    Button b = new Button(this);
-    b.setText(label);
-    b.setAllCaps(false);
-    b.setTextSize(11);
-    b.setTextColor(lime);
-    b.setOnClickListener(v -> action.run());
-    return b;
+    return Ui.dp(this, n);
   }
   @Override
   public void onCreate(Bundle saved) {
     super.onCreate(saved);
-    getWindow().setStatusBarColor(dark);
-    getWindow().setNavigationBarColor(dark);
-    LinearLayout root = new LinearLayout(this);
-    root.setOrientation(LinearLayout.VERTICAL);
-    root.setBackgroundColor(dark);
+    getWindow().setStatusBarColor(Ui.BG);
+    getWindow().setNavigationBarColor(Ui.BG);
+    PlayerService s = PlayerService.instance;
+    if (s == null) {
+      startActivity(new Intent(this, MainActivity.class));
+      finish();
+      return;
+    }
+    session = s.browser();
+    web = session.web;
+    LinearLayout root = Ui.column(this);
+    root.setBackgroundColor(Ui.BG);
     setContentView(root);
-    LinearLayout bar = new LinearLayout(this);
-    bar.setPadding(dp(6), 0, dp(6), 0);
-    bar.setGravity(Gravity.CENTER_VERTICAL);
-    bar.addView(button("‹ App", this::finish));
+    LinearLayout header = Ui.row(this);
+    header.setPadding(dp(4), dp(6), dp(8), dp(6));
+    ImageView close = Ui.iconButton(this, "back", Ui.TEXT, this::finish);
+    close.setContentDescription("Voltar ao RetroPlayer");
+    header.addView(close, new LinearLayout.LayoutParams(dp(44), dp(44)));
+    TextView title = Ui.text(this, "Explorar", 21, Ui.TEXT);
+    title.setTypeface(
+        android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+    header.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+    ImageView bookmarks = Ui.iconButton(this, "library", Ui.LIME, this::favorites);
+    bookmarks.setContentDescription("Sites favoritos");
+    header.addView(bookmarks, new LinearLayout.LayoutParams(dp(48), dp(48)));
+    root.addView(header);
+    LinearLayout bar = Ui.row(this);
+    bar.setBackground(Ui.shape(this, Ui.PANEL, 16));
+    LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, dp(50));
+    bp.setMargins(dp(16), 0, dp(16), dp(8));
+    root.addView(bar, bp);
+    ImageView search = Ui.icon(this, "search", Ui.MUTED, 21);
+    bar.addView(search, new LinearLayout.LayoutParams(dp(44), dp(44)));
     address = new EditText(this);
+    address.setTextColor(Ui.TEXT);
+    address.setTextSize(14);
+    address.setHintTextColor(Ui.MUTED);
+    address.setHint("Pesquisar ou digitar endereço");
     address.setSingleLine();
-    address.setTextSize(13);
-    address.setTextColor(Color.WHITE);
-    address.setHintTextColor(Color.GRAY);
-    address.setHint("Site, pesquisa ou link de mídia");
-    address.setInputType(17);
-    address.setImeOptions(2);
+    address.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+    address.setInputType(
+        android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+    address.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_GO);
     address.setSelectAllOnFocus(true);
-    address.setOnEditorActionListener((v, a, event) -> {
+    address.setOnEditorActionListener((v, a, e) -> {
       navigate();
       return true;
     });
-    bar.addView(address, new LinearLayout.LayoutParams(0, dp(55), 1));
-    bar.addView(button("Ir", this::navigate));
-    root.addView(bar);
+    bar.addView(address, new LinearLayout.LayoutParams(0, -1, 1));
+    ImageView go = Ui.iconButton(this, "forward", Ui.LIME, this::navigate);
+    go.setContentDescription("Abrir endereço");
+    bar.addView(go, new LinearLayout.LayoutParams(dp(44), dp(44)));
     progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-    root.addView(progress, new LinearLayout.LayoutParams(-1, dp(3)));
-    status = new TextView(this);
-    status.setTextColor(lime);
-    status.setTextSize(10);
-    status.setPadding(dp(12), dp(4), dp(12), dp(4));
-    status.setText("Navegador • o som de sites é local; links diretos podem ir para a sala.");
+    progress.setProgressTintList(android.content.res.ColorStateList.valueOf(Ui.LIME));
+    progress.setVisibility(View.GONE);
+    root.addView(progress, new LinearLayout.LayoutParams(-1, dp(2)));
+    status = Ui.text(this, "Áudio em segundo plano ativado", 11, Ui.MUTED);
+    status.setPadding(dp(18), dp(4), dp(18), dp(6));
     root.addView(status);
     holder = new FrameLayout(this);
     root.addView(holder, new LinearLayout.LayoutParams(-1, 0, 1));
-    web = new WebView(this);
-    holder.addView(web, new FrameLayout.LayoutParams(-1, -1));
-    web.setBackgroundColor(dark);
-    WebSettings settings = web.getSettings();
-    settings.setJavaScriptEnabled(true);
-    settings.setDomStorageEnabled(true);
-    settings.setAllowFileAccess(false);
-    settings.setAllowContentAccess(false);
-    settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-    settings.setMediaPlaybackRequiresUserGesture(true);
-    settings.setBuiltInZoomControls(true);
-    settings.setDisplayZoomControls(false);
-    settings.setSafeBrowsingEnabled(true);
-    CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
-    web.setWebViewClient(new WebViewClient() {
-      public void onPageFinished(WebView v, String url) {
-        address.setText(url);
-      }
-      public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
-        String scheme = r.getUrl().getScheme();
-        if (!"http".equals(scheme) && !"https".equals(scheme)) {
-          Toast
-              .makeText(BrowserActivity.this, "Este link precisa de um aplicativo externo.",
-                  Toast.LENGTH_SHORT)
-              .show();
-          return true;
-        }
-        String path = r.getUrl().getPath();
-        if (r.isForMainFrame() && path != null
-            && path.toLowerCase(java.util.Locale.ROOT).matches(".*\\.(mp3|mp4|m4a|aac|ogg|wav|webm|m3u8)$")) {
-          direct(r.getUrl().toString());
-          return true;
-        }
-        return false;
-      }
-      public void onReceivedError(WebView v, WebResourceRequest r, WebResourceError e) {
-        if (r.isForMainFrame())
-          status.setText("Não foi possível abrir o site. Verifique o endereço e sua conexão.");
-      }
-    });
-    web.setWebChromeClient(new WebChromeClient() {
-      public void onProgressChanged(WebView v, int n) {
-        progress.setProgress(n);
-        progress.setVisibility(n == 100 ? View.GONE : View.VISIBLE);
-      }
-      public void onShowCustomView(View view, CustomViewCallback callback) {
-        if (fullscreen != null) {
-          callback.onCustomViewHidden();
-          return;
-        }
-        fullscreen = view;
-        fullscreenCallback = callback;
-        holder.addView(view, new FrameLayout.LayoutParams(-1, -1));
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-      }
-      public void onHideCustomView() {
-        hideFullscreen();
-      }
-    });
-    web.setDownloadListener((url, ua, disposition, mime, length) -> {
-      if (mime != null && (mime.startsWith("audio/") || mime.startsWith("video/")))
-        direct(url);
-      else
-        Toast
-            .makeText(
-                this, "Downloads de sites não são suportados neste navegador.", Toast.LENGTH_LONG)
-            .show();
-    });
-    LinearLayout tools = new LinearLayout(this);
-    for (Button b : new Button[] {button("◀",
-                                      () -> {
-                                        if (web.canGoBack())
-                                          web.goBack();
-                                      }),
-             button("▶",
-                 () -> {
-                   if (web.canGoForward())
-                     web.goForward();
-                 }),
-             button("Recarregar", () -> web.reload()),
-             button("Tocar link", () -> direct(address.getText().toString()))})
-      tools.addView(b, new LinearLayout.LayoutParams(0, dp(52), 1));
-    root.addView(tools);
-    if (saved != null)
-      web.restoreState(saved);
-    else
-      home();
-  }
-  void home() {
-    web.loadDataWithBaseURL("https://retroplayer.invalid/",
-        "<!doctype html><meta name='viewport' content='width=device-width'><body "
-        + "style='background:#0e1017;color:#c9ff66;font-family:monospace;padding:30px'><h1>ϟ WEB "
-        + "RADIO</h1><p style='color:#a0aabc;line-height:1.8'>Digite um site ou faça uma busca na "
-        + "barra acima.<br><br>Assista e escute pela internet.<br><br>Para ouvir com a turma, use "
-        + "<b>Tocar link</b> com um endereço direto MP3, MP4 ou outro formato "
-        + "compatível.<br><br>Vídeos dentro de sites tocam somente aqui. O conteúdo de cada site "
-        + "depende da compatibilidade com o navegador.</p>",
-        "text/html", "UTF-8", null);
-  }
-  void navigate() {
-    String v = address.getText().toString().trim();
-    if (v.isEmpty())
-      return;
-    if (!v.startsWith("https://") && !v.startsWith("http://"))
-      v = v.contains(".") && !v.contains(" ") ? "https://" + v
-                                              : "https://www.google.com/search?q=" + Uri.encode(v);
-    Uri u = Uri.parse(v);
-    if (u.getHost() == null)
-      return;
-    web.loadUrl(v);
-    ((android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
-        .hideSoftInputFromWindow(address.getWindowToken(), 0);
-    web.requestFocus();
-  }
-  void direct(String initial) {
-    EditText e = new EditText(this);
-    e.setText(initial.startsWith("https://retroplayer.invalid") ? "" : initial);
-    e.setHint("https://site.com/musica.mp3");
-    e.setInputType(17);
-    new AlertDialog.Builder(this)
-        .setTitle("Abrir link no player")
-        .setMessage("Use o endereço direto do áudio ou vídeo (HTTPS). Páginas de sites e conteúdo "
-                    + "protegido não funcionam como uma faixa compartilhada.")
-        .setView(e)
-        .setNegativeButton("Cancelar", null)
-        .setPositiveButton("Tocar",
-            (d, w) -> {
-              String url = e.getText().toString().trim();
-              Uri u = Uri.parse(url);
-              if (!"https".equals(u.getScheme()) || u.getHost() == null
-                  || u.getUserInfo() != null) {
-                Toast.makeText(this, "Informe um link HTTPS direto válido.", Toast.LENGTH_LONG)
-                    .show();
-                return;
-              }
-              PlayerService s = PlayerService.instance;
-              if (s != null) {
-                web.loadUrl("about:blank");
-                s.addRemote(url);
-                finish();
-              } else
-                Toast.makeText(this, "Abra o player novamente.", Toast.LENGTH_LONG).show();
-            })
-        .show();
-  }
-  void hideFullscreen() {
-    if (fullscreen != null) {
-      holder.removeView(fullscreen);
-      fullscreen = null;
-      if (fullscreenCallback != null)
-        fullscreenCallback.onCustomViewHidden();
-      fullscreenCallback = null;
-      getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+    session.attach(this, holder);
+    home = new ScrollView(this);
+    home.setBackgroundColor(Ui.BG);
+    holder.addView(home, new FrameLayout.LayoutParams(-1, -1));
+    renderHome();
+    if (session.pageUrl.isEmpty())
+      showHome();
+    else {
+      home.setVisibility(View.GONE);
+      web.setVisibility(View.VISIBLE);
     }
+    LinearLayout tools = Ui.row(this);
+    tools.setBackgroundColor(Ui.PANEL);
+    Object[][] entries = {
+        {"back", "Voltar", (Runnable) () -> {if (web.canGoBack()){home.setVisibility(View.GONE);
+    web.goBack();
   }
-  @Override
-  public void onBackPressed() {
-    if (fullscreen != null)
-      hideFullscreen();
-    else if (web.canGoBack())
-      web.goBack();
-    else
-      super.onBackPressed();
+  else showHome();
+}
+}
+, {"forward", "Avançar", (Runnable) () -> {if (web.canGoForward()){home.setVisibility(View.GONE);
+web.goForward();
+}
+}
+}
+, {"star", "Salvar site nos favoritos", (Runnable) this::saveFavorite},
+    {"headphones", "Ouvir no player", (Runnable) () -> direct(address.getText().toString())}, {
+  "more", "Opções do navegador", (Runnable) this::options
+}
+}
+;
+for (Object[] e : entries) {
+  ImageView icon = Ui.iconButton(this, (String) e[0], Ui.TEXT, (Runnable) e[2]);
+  icon.setContentDescription((String) e[1]);
+  tools.addView(icon, new LinearLayout.LayoutParams(0, dp(56), 1));
+  if (e[0].equals("star"))
+    star = icon;
+}
+root.addView(tools);
+pageChanged();
+}
+List<BookmarkStore.Bookmark> bookmarks() {
+  return BookmarkStore.read(getSharedPreferences("browser", 0).getString("bookmarks", "[]"));
+}
+void persist(List<BookmarkStore.Bookmark> list) {
+  getSharedPreferences("browser", 0)
+      .edit()
+      .putString("bookmarks", BookmarkStore.write(list))
+      .apply();
+}
+void renderHome() {
+  LinearLayout content = Ui.column(this);
+  content.setPadding(dp(24), dp(14), dp(24), dp(24));
+  Ui.SpriteView sprite = new Ui.SpriteView(this);
+  content.addView(sprite, new LinearLayout.LayoutParams(-1, dp(170)));
+  TextView title = Ui.text(this, "A internet no seu ritmo.", 26, Ui.TEXT);
+  title.setGravity(Gravity.CENTER);
+  title.setTypeface(
+      android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+  content.addView(title);
+  Ui.gap(this, content, 10);
+  TextView intro = Ui.text(this,
+      "Encontre músicas, rádios e vídeos.\nSalve seus sites para voltar com um toque.", 14,
+      Ui.MUTED);
+  intro.setGravity(Gravity.CENTER);
+  intro.setLineSpacing(dp(4), 1);
+  content.addView(intro);
+  Ui.gap(this, content, 24);
+  content.addView(Ui.button(this, "Pesquisar na internet", true, () -> {
+    address.requestFocus();
+    ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
+        .showSoftInput(address, InputMethodManager.SHOW_IMPLICIT);
+  }));
+  Ui.gap(this, content, 26);
+  content.addView(Ui.label(this, "SEUS FAVORITOS"));
+  Ui.gap(this, content, 12);
+  List<BookmarkStore.Bookmark> favorites = bookmarks();
+  if (favorites.isEmpty()) {
+    TextView hint = Ui.text(this, "Abra um site e toque na estrela para salvar.", 13, Ui.MUTED);
+    content.addView(hint);
+  } else
+    for (BookmarkStore.Bookmark b : favorites) {
+      LinearLayout r = favoriteRow(b);
+      r.setOnClickListener(v -> open(b.url));
+      r.setOnLongClickListener(v -> {
+        removeFavorite(b);
+        return true;
+      });
+      content.addView(r);
+    }
+  Ui.gap(this, content, 22);
+  TextView note = Ui.text(this,
+      "Links diretos de áudio ou vídeo podem tocar no player. Alguns sites protegidos controlam a "
+          + "reprodução em segundo plano.",
+      12, Ui.MUTED);
+  note.setLineSpacing(dp(3), 1);
+  content.addView(note);
+  home.removeAllViews();
+  home.addView(content);
+}
+LinearLayout favoriteRow(BookmarkStore.Bookmark b) {
+  LinearLayout row = Ui.row(this);
+  row.setPadding(dp(8), dp(12), dp(8), dp(12));
+  row.setBackground(Ui.ripple(this, Ui.BG, 12));
+  ImageView icon = Ui.icon(this, "web", Ui.LIME, 23);
+  row.addView(icon, new LinearLayout.LayoutParams(dp(44), dp(44)));
+  LinearLayout labels = Ui.column(this);
+  TextView t = Ui.text(this, b.title, 15, Ui.TEXT);
+  t.setMaxLines(1);
+  t.setEllipsize(android.text.TextUtils.TruncateAt.END);
+  labels.addView(t);
+  TextView u = Ui.text(this, Uri.parse(b.url).getHost(), 12, Ui.MUTED);
+  labels.addView(u);
+  row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
+  return row;
+}
+void showHome() {
+  web.setVisibility(View.INVISIBLE);
+  home.setVisibility(View.VISIBLE);
+  address.setText("");
+  renderHome();
+}
+void open(String url) {
+  if (!BookmarkStore.valid(url)) {
+    toast("Endereço inválido.");
+    return;
   }
-  @Override
-  protected void onPause() {
-    web.onPause();
-    super.onPause();
+  home.setVisibility(View.GONE);
+  web.setVisibility(View.VISIBLE);
+  session.navigate(url);
+  address.clearFocus();
+  ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
+      .hideSoftInputFromWindow(address.getWindowToken(), 0);
+}
+void navigate() {
+  String value = address.getText().toString().trim();
+  if (value.isEmpty())
+    return;
+  if (!value.startsWith("http://") && !value.startsWith("https://"))
+    value = value.contains(".") && !value.contains(" ")
+        ? "https://" + value
+        : "https://www.google.com/search?q=" + Uri.encode(value);
+  open(value);
+}
+void pageChanged() {
+  if (session == null || address == null)
+    return;
+  if (!address.hasFocus() && home != null && home.getVisibility() != View.VISIBLE)
+    address.setText(session.pageUrl);
+  if (star != null) {
+    boolean saved = false;
+    for (BookmarkStore.Bookmark b : bookmarks())
+      if (b.url.equals(session.pageUrl))
+        saved = true;
+    star.setImageDrawable(new Ui.Glyph(saved ? "starfill" : "star", saved ? Ui.LIME : Ui.TEXT));
   }
-  @Override
-  protected void onResume() {
-    super.onResume();
-    if (web != null)
-      web.onResume();
+  setStatus(session.backgroundEnabled ? "Áudio em segundo plano ativado"
+                                      : "Áudio em segundo plano desativado");
+}
+void loading(int value) {
+  progress.setVisibility(value == 100 ? View.GONE : View.VISIBLE);
+  progress.setProgress(value);
+}
+void setStatus(String value) {
+  status.setText(value);
+}
+void saveFavorite() {
+  String url = session.pageUrl;
+  if (!BookmarkStore.valid(url) || home.getVisibility() == View.VISIBLE) {
+    toast("Abra um site para salvar nos favoritos.");
+    return;
   }
-  @Override
-  protected void onSaveInstanceState(Bundle b) {
-    web.saveState(b);
-    super.onSaveInstanceState(b);
+  EditText name = new EditText(this);
+  name.setText(session.pageTitle);
+  new AlertDialog.Builder(this)
+      .setTitle("Salvar nos favoritos")
+      .setView(name)
+      .setNegativeButton("Cancelar", null)
+      .setPositiveButton("Salvar",
+          (d, w) -> {
+            List<BookmarkStore.Bookmark> list = bookmarks();
+            BookmarkStore.save(list, name.getText().toString().trim(), url);
+            persist(list);
+            pageChanged();
+            toast("Site salvo nos favoritos.");
+          })
+      .show();
+}
+void removeFavorite(BookmarkStore.Bookmark bookmark) {
+  new AlertDialog.Builder(this)
+      .setTitle("Remover favorito?")
+      .setMessage(bookmark.title)
+      .setNegativeButton("Cancelar", null)
+      .setPositiveButton("Remover",
+          (d, w) -> {
+            List<BookmarkStore.Bookmark> list = bookmarks();
+            list.removeIf(b -> b.url.equals(bookmark.url));
+            persist(list);
+            renderHome();
+            pageChanged();
+          })
+      .show();
+}
+void favorites() {
+  List<BookmarkStore.Bookmark> list = bookmarks();
+  if (list.isEmpty()) {
+    toast("Seus sites favoritos aparecerão aqui.");
+    showHome();
+    return;
   }
-  @Override
-  protected void onDestroy() {
+  ListView view = new ListView(this);
+  view.setAdapter(new BaseAdapter() {
+    public int getCount() {
+      return list.size();
+    }
+    public Object getItem(int n) {
+      return list.get(n);
+    }
+    public long getItemId(int n) {
+      return n;
+    }
+    public View getView(int n, View old, ViewGroup parent) {
+      return favoriteRow(list.get(n));
+    }
+  });
+  AlertDialog dialog = new AlertDialog.Builder(this)
+                           .setTitle("Sites favoritos")
+                           .setView(view)
+                           .setNegativeButton("Fechar", null)
+                           .create();
+  view.setOnItemClickListener((p, v, n, id) -> {
+    open(list.get(n).url);
+    dialog.dismiss();
+  });
+  view.setOnItemLongClickListener((p, v, n, id) -> {
+    dialog.dismiss();
+    removeFavorite(list.get(n));
+    return true;
+  });
+  dialog.show();
+}
+void options() {
+  new AlertDialog.Builder(this)
+      .setTitle("Navegador")
+      .setItems(new String[] {"Página inicial", "Sites favoritos", "Recarregar página",
+                    "Abrir link de mídia no player",
+                    session.backgroundEnabled ? "Desativar áudio em segundo plano"
+                                              : "Ativar áudio em segundo plano",
+                    "Parar áudio do site"},
+          (d, n) -> {
+            switch (n) {
+              case 0:
+                showHome();
+                break;
+              case 1:
+                favorites();
+                break;
+              case 2:
+                web.reload();
+                break;
+              case 3:
+                direct(address.getText().toString());
+                break;
+              case 4:
+                session.setBackground(!session.backgroundEnabled);
+                pageChanged();
+                break;
+              case 5:
+                session.pauseMedia();
+                break;
+            }
+          })
+      .show();
+}
+void direct(String initial) {
+  EditText input = new EditText(this);
+  input.setSingleLine();
+  input.setText(initial);
+  input.setHint("https://site.com/musica.mp3");
+  input.setInputType(
+      android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+  new AlertDialog.Builder(this)
+      .setTitle("Ouvir no player")
+      .setMessage("Cole um link HTTPS direto de áudio ou vídeo. O player mantém o som com a tela "
+          + "apagada e pode compartilhar a faixa na sala.")
+      .setView(input)
+      .setNegativeButton("Cancelar", null)
+      .setPositiveButton("Tocar",
+          (d, w) -> {
+            String url = input.getText().toString().trim();
+            Uri uri = Uri.parse(url);
+            if (!"https".equals(uri.getScheme()) || uri.getHost() == null
+                || uri.getUserInfo() != null) {
+              toast("Use um link HTTPS direto válido.");
+              return;
+            }
+            Map<String, String> headers = new HashMap<>();
+            headers.put("User-Agent", web.getSettings().getUserAgentString());
+            if (session.pageUrl.startsWith("https://"))
+              headers.put("Referer", session.pageUrl);
+            String cookie = CookieManager.getInstance().getCookie(url);
+            if (cookie != null)
+              headers.put("Cookie", cookie);
+            session.handoffPending = true;
+            session.service.addWebMedia(url, null, headers, 0);
+            finish();
+          })
+      .show();
+}
+void showFullscreen(View view, WebChromeClient.CustomViewCallback callback) {
+  if (fullscreen != null) {
+    callback.onCustomViewHidden();
+    return;
+  }
+  fullscreen = view;
+  fullscreenCallback = callback;
+  holder.addView(view, new FrameLayout.LayoutParams(-1, -1));
+  getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+}
+void hideFullscreen() {
+  if (fullscreen == null)
+    return;
+  holder.removeView(fullscreen);
+  fullscreen = null;
+  if (fullscreenCallback != null)
+    fullscreenCallback.onCustomViewHidden();
+  fullscreenCallback = null;
+  getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+}
+void toast(String s) {
+  Toast.makeText(this, s, Toast.LENGTH_LONG).show();
+}
+@Override
+public void onBackPressed() {
+  if (fullscreen != null)
     hideFullscreen();
-    holder.removeView(web);
-    web.destroy();
-    super.onDestroy();
-  }
+  else if (home.getVisibility() != View.VISIBLE && web.canGoBack())
+    web.goBack();
+  else
+    finish();
+}
+@Override
+protected void onResume() {
+  super.onResume();
+  resumed = true;
+  if (web != null)
+    web.onResume();
+}
+@Override
+protected void onPause() {
+  resumed = false;
+  super.onPause();
+}
+@Override
+protected void onStop() {
+  super.onStop();
+  if (session != null)
+    session.background();
+}
+@Override
+protected void onDestroy() {
+  hideFullscreen();
+  if (session != null)
+    session.detach(this);
+  super.onDestroy();
+}
 }

@@ -1,11 +1,11 @@
 package br.com.retroplayer;
 
 import android.app.*;
-import android.media.session.*;
 import android.content.*;
-import android.os.*;
 import android.media.*;
+import android.media.session.*;
 import android.net.Uri;
+import android.os.*;
 import android.view.Surface;
 import java.io.*;
 import java.util.*;
@@ -29,12 +29,49 @@ public class PlayerService extends Service {
       eq.setEnabled(true);
     }
   }
+  BrowserSession browser;
+  public BrowserSession browser() {
+    if (browser == null)
+      browser = new BrowserSession(this);
+    return browser;
+  }
+  public void controlToggle() {
+    if (browser != null && browser.active) {
+      if (browser.playing)
+        browser.pauseMedia();
+      else
+        browser.playMedia();
+      notifyNow();
+    } else
+      toggle();
+  }
+  public void controlPlay() {
+    if (browser != null && browser.active)
+      browser.playMedia();
+    else
+      play();
+  }
+  public void controlPause() {
+    if (browser != null && browser.active)
+      browser.pauseMedia();
+    pause();
+  }
+  public volatile boolean importing = false;
+  public volatile String importStatus = "";
+  public final java.util.concurrent.atomic.AtomicBoolean cancelImport =
+      new java.util.concurrent.atomic.AtomicBoolean();
+  final java.util.concurrent.ExecutorService library =
+      java.util.concurrent.Executors.newSingleThreadExecutor();
+  public long tracksVersion = 0;
+  boolean restoring = false, restored = false;
+  android.content.BroadcastReceiver noisy;
   MediaPlayer player;
   RoomServer server;
   java.lang.Process tunnel;
   final Handler main = new Handler(Looper.getMainLooper());
   android.os.PowerManager.WakeLock wake;
   MediaSession session;
+  String metadataTitle = "";
   Surface surface;
   long generation = 0;
   boolean repeat = false, shuffle = false;
@@ -44,6 +81,8 @@ public class PlayerService extends Service {
     public Uri uri;
     public String name, mime;
     public long size;
+    Map<String, String> headers;
+    int startPosition = 0;
     Track(Uri u, String n, String m, long z) {
       uri = u;
       name = n;
@@ -61,10 +100,10 @@ public class PlayerService extends Service {
     session = new MediaSession(this, "RetroPlayer");
     session.setCallback(new MediaSession.Callback() {
       public void onPlay() {
-        play();
+        controlPlay();
       }
       public void onPause() {
-        pause();
+        controlPause();
       }
       public void onSkipToNext() {
         next(1);
@@ -73,7 +112,10 @@ public class PlayerService extends Service {
         next(-1);
       }
       public void onSeekTo(long p) {
-        seek((int) p);
+        if (browser != null && browser.active)
+          browser.seekMedia((int) p);
+        else
+          seek((int) p);
       }
     });
     session.setFlags(
@@ -88,6 +130,16 @@ public class PlayerService extends Service {
     } catch (Exception e) {
       error = e.toString();
     }
+    noisy = new BroadcastReceiver() {
+      public void onReceive(Context c, Intent i) {
+        controlPause();
+      }
+    };
+    if (Build.VERSION.SDK_INT >= 33)
+      registerReceiver(noisy, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
+          Context.RECEIVER_NOT_EXPORTED);
+    else
+      registerReceiver(noisy, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY));
     main.post(tick);
   }
   Notification notification() {
@@ -97,8 +149,12 @@ public class PlayerService extends Service {
     Notification.Builder n =
         new Notification.Builder(this, "player")
             .setSmallIcon(br.com.retroplayer.R.drawable.icon)
-            .setContentTitle(index >= 0 ? tracks.get(index).name : "RetroPlayer • Together")
-            .setContentText(room ? tunnelStatus : "Música, vídeo e boas companhias")
+            .setContentTitle(browser != null && browser.active
+                    ? browser.pageTitle
+                    : (index >= 0 ? tracks.get(index).name : "RetroPlayer"))
+            .setContentText(browser != null && browser.active
+                    ? "Web • áudio em segundo plano"
+                    : (room ? tunnelStatus : "Sua música continua em segundo plano"))
             .setContentIntent(pi)
             .setOngoing(true)
             .setStyle(new Notification.MediaStyle()
@@ -107,9 +163,12 @@ public class PlayerService extends Service {
     for (String a : new String[] {"toggle", "next", "stop"}) {
       PendingIntent p = PendingIntent.getService(this, a.hashCode(),
           new Intent(this, PlayerService.class).setAction(a), PendingIntent.FLAG_IMMUTABLE);
-      n.addAction(a.equals("toggle") ? android.R.drawable.ic_media_play
-              : a.equals("next")     ? android.R.drawable.ic_media_next
-                                     : android.R.drawable.ic_menu_close_clear_cancel,
+      n.addAction(a.equals("toggle")
+              ? ((browser != null && browser.active ? browser.playing : ready && player.isPlaying())
+                        ? android.R.drawable.ic_media_pause
+                        : android.R.drawable.ic_media_play)
+              : a.equals("next") ? android.R.drawable.ic_media_next
+                                 : android.R.drawable.ic_menu_close_clear_cancel,
           a.equals("toggle")     ? "Play / pausa"
               : a.equals("next") ? "Próxima"
                                  : "Encerrar",
@@ -124,7 +183,7 @@ public class PlayerService extends Service {
     if (i != null) {
       String a = i.getAction();
       if ("toggle".equals(a))
-        toggle();
+        controlToggle();
       if ("next".equals(a))
         next(1);
       if ("stop".equals(a)) {
@@ -159,6 +218,23 @@ public class PlayerService extends Service {
               .put("mime", index >= 0 ? tracks.get(index).mime : "")
               .put("room", room);
       state = s.toString();
+      if (browser != null && browser.active) {
+        playing = browser.playing;
+        pos = (int) (browser.position * 1000);
+        duration = (int) (browser.duration * 1000);
+      }
+      String currentTitle = browser != null && browser.active ? browser.pageTitle
+          : index >= 0                                        ? tracks.get(index).name
+                                                              : "RetroPlayer";
+      if (!currentTitle.equals(metadataTitle)) {
+        metadataTitle = currentTitle;
+        session.setMetadata(new MediaMetadata.Builder()
+                .putString(MediaMetadata.METADATA_KEY_TITLE, currentTitle)
+                .putString(MediaMetadata.METADATA_KEY_ARTIST,
+                    browser != null && browser.active ? "Navegador" : "RetroPlayer")
+                .putLong(MediaMetadata.METADATA_KEY_DURATION, Math.max(0, duration))
+                .build());
+      }
       session.setPlaybackState(new PlaybackState.Builder()
               .setActions(PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE
                   | PlaybackState.ACTION_PLAY_PAUSE | PlaybackState.ACTION_SKIP_TO_NEXT
@@ -169,76 +245,237 @@ public class PlayerService extends Service {
     } catch (Exception ignored) {
     }
   }
+  Track describe(Uri uri) throws Exception {
+    String name = "Mídia";
+    long size = -1;
+    try (android.database.Cursor c = getContentResolver().query(uri,
+             new String[] {android.provider.OpenableColumns.DISPLAY_NAME,
+                 android.provider.OpenableColumns.SIZE},
+             null, null, null)) {
+      if (c != null && c.moveToFirst()) {
+        name = c.isNull(0) ? name : c.getString(0);
+        size = c.isNull(1) ? -1 : c.getLong(1);
+      }
+    }
+    String mime = getContentResolver().getType(uri);
+    return new Track(uri, name, mime == null ? guessMime(name) : mime, size);
+  }
+  static String guessMime(String name) {
+    String n = name.toLowerCase(Locale.ROOT);
+    if (n.endsWith(".mp4") || n.endsWith(".m4v"))
+      return "video/mp4";
+    if (n.endsWith(".webm"))
+      return "video/webm";
+    if (n.endsWith(".mkv"))
+      return "video/x-matroska";
+    if (n.endsWith(".m3u8"))
+      return "application/vnd.apple.mpegurl";
+    if (n.endsWith(".flac"))
+      return "audio/flac";
+    if (n.endsWith(".ogg") || n.endsWith(".opus"))
+      return "audio/ogg";
+    if (n.endsWith(".wav"))
+      return "audio/wav";
+    if (n.endsWith(".m4a"))
+      return "audio/mp4";
+    return "audio/mpeg";
+  }
   public void add(Uri uri) {
     if ("https".equals(uri.getScheme())) {
       addRemote(uri.toString());
       return;
     }
-    try {
-      String name = "Mídia";
-      long size = -1;
-      try (android.database.Cursor c = getContentResolver().query(uri, null, null, null, null)) {
-        if (c != null && c.moveToFirst()) {
-          int ni = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME),
-              si = c.getColumnIndex(android.provider.OpenableColumns.SIZE);
-          if (ni >= 0)
-            name = c.getString(ni);
-          if (si >= 0 && !c.isNull(si))
-            size = c.getLong(si);
-        }
+    library.execute(() -> {
+      try {
+        Track t = describe(uri);
+        main.post(() -> {
+          if (instance == this)
+            appendTracks(java.util.Collections.singletonList(t), true);
+        });
+      } catch (Exception e) {
+        error = "Arquivo indisponível: " + e.getMessage();
       }
-      String mime = getContentResolver().getType(uri);
-      if (mime == null)
-        mime = name.toLowerCase(Locale.ROOT).endsWith("mp4") ? "video/mp4" : "audio/mpeg";
-      tracks.add(new Track(uri, name, mime, size));
+    });
+  }
+  int appendTracks(List<Track> added, boolean autoplay) {
+    Set<String> existing = new HashSet<>();
+    for (Track t : tracks) existing.add(t.uri.toString());
+    int count = 0;
+    for (Track t : added)
+      if (existing.add(t.uri.toString())) {
+        tracks.add(t);
+        count++;
+      }
+    if (count > 0) {
+      tracksVersion++;
       saveQueue();
       if (index < 0)
-        select(0);
-    } catch (Exception e) {
-      error = "Não foi possível abrir o arquivo: " + e.getMessage();
+        select(0, autoplay);
     }
+    return count;
+  }
+  public void importFolder(Uri tree) {
+    if (importing)
+      return;
+    importing = true;
+    importStatus = "Lendo a pasta…";
+    cancelImport.set(false);
+    library.execute(() -> {
+      MediaFiles.Result r = FolderImporter.scan(getContentResolver(), tree, cancelImport,
+          (files,
+              folders) -> importStatus = files + " mídias • " + folders + " pastas verificadas");
+      ArrayList<Track> added = new ArrayList<>();
+      for (MediaFiles.Entry e : r.files)
+        added.add(new Track(Uri.parse(e.uri), e.name,
+            e.mime == null || (!e.mime.startsWith("audio/") && !e.mime.startsWith("video/"))
+                ? guessMime(e.name)
+                : e.mime,
+            e.size));
+      main.post(() -> {
+        if (instance != this)
+          return;
+        int count = r.cancelled ? 0 : appendTracks(added, true);
+        importing = false;
+        importStatus = r.cancelled ? "Importação cancelada"
+                                   : count + " arquivos adicionados"
+                + (r.unreadable > 0 ? " • " + r.unreadable + " pastas sem acesso" : "");
+      });
+    });
   }
   public void addRemote(String link) {
+    addWebMedia(link, null, null, 0);
+  }
+  public void addWebMedia(String link, String title, Map<String, String> headers, int position) {
     try {
       Uri uri = Uri.parse(link);
       if (!"https".equals(uri.getScheme()) || uri.getHost() == null || uri.getUserInfo() != null)
-        throw new IllegalArgumentException("Link inválido");
-      String name = uri.getLastPathSegment();
+        throw new IllegalArgumentException("Use HTTPS");
+      String name = title;
+      if (name == null || name.isEmpty())
+        name = uri.getLastPathSegment();
       if (name == null || name.isEmpty())
         name = uri.getHost();
-      String path = name.toLowerCase(Locale.ROOT);
-      String mime = path.endsWith(".mp4") ? "video/mp4"
-          : path.endsWith(".webm")        ? "video/webm"
-          : path.endsWith(".m3u8")        ? "application/vnd.apple.mpegurl"
-          : path.endsWith(".ogg")         ? "audio/ogg"
-          : path.endsWith(".wav")         ? "audio/wav"
-          : path.endsWith(".m4a")         ? "audio/mp4"
-                                          : "audio/mpeg";
-      tracks.add(new Track(uri, name, mime, -1));
+      Track t = new Track(uri, name, guessMime(uri.getPath() == null ? name : uri.getPath()), -1);
+      t.headers = headers;
+      t.startPosition = position;
+      int at = -1;
+      for (int i = 0; i < tracks.size(); i++)
+        if (tracks.get(i).uri.equals(uri)) {
+          at = i;
+          break;
+        }
+      if (at < 0) {
+        tracks.add(t);
+        at = tracks.size() - 1;
+      } else
+        tracks.set(at, t);
+      tracksVersion++;
       saveQueue();
-      select(tracks.size() - 1);
+      select(at);
     } catch (Exception e) {
       error = "Link não suportado: " + e.getMessage();
+      if (browser != null)
+        browser.handoffPending = false;
     }
   }
   void saveQueue() {
     try {
-      JSONArray a = new JSONArray();
-      for (Track t : tracks) a.put(t.uri.toString());
-      getSharedPreferences("queue", 0).edit().putString("uris", a.toString()).apply();
+      JSONArray items = new JSONArray();
+      for (Track t : tracks)
+        items.put(new JSONObject()
+                .put("uri", t.uri.toString())
+                .put("name", t.name)
+                .put("mime", t.mime)
+                .put("size", t.size));
+      getSharedPreferences("queue", 0)
+          .edit()
+          .putString("items", items.toString())
+          .remove("uris")
+          .apply();
     } catch (Exception ignored) {
     }
   }
   public void restore() {
-    if (!tracks.isEmpty())
+    if (restored || restoring || !tracks.isEmpty())
       return;
-    try {
-      JSONArray a = new JSONArray(getSharedPreferences("queue", 0).getString("uris", "[]"));
-      for (int i = 0; i < a.length(); i++) add(Uri.parse(a.getString(i)));
-    } catch (Exception ignored) {
+    restoring = true;
+    library.execute(() -> {
+      ArrayList<Track> result = new ArrayList<>();
+      try {
+        android.content.SharedPreferences prefs = getSharedPreferences("queue", 0);
+        if (prefs.contains("items")) {
+          JSONArray a = new JSONArray(prefs.getString("items", "[]"));
+          for (int i = 0; i < a.length(); i++) {
+            JSONObject j = a.getJSONObject(i);
+            result.add(new Track(Uri.parse(j.getString("uri")), j.getString("name"),
+                j.getString("mime"), j.optLong("size", -1)));
+          }
+        } else {
+          JSONArray a = new JSONArray(prefs.getString("uris", "[]"));
+          for (int i = 0; i < a.length(); i++) {
+            Uri u = Uri.parse(a.getString(i));
+            if ("https".equals(u.getScheme()))
+              result.add(new Track(u,
+                  u.getLastPathSegment() == null ? u.getHost() : u.getLastPathSegment(),
+                  guessMime(u.getPath() == null ? "" : u.getPath()), -1));
+            else
+              try {
+                result.add(describe(u));
+              } catch (Exception ignored) {
+              }
+          }
+        }
+      } catch (Exception ignored) {
+      }
+      main.post(() -> {
+        if (instance != this)
+          return;
+        restoring = false;
+        restored = true;
+        appendTracks(result, false);
+      });
+    });
+  }
+  public void removeTrack(int at) {
+    if (at < 0 || at >= tracks.size())
+      return;
+    if (tracks.size() == 1) {
+      clearQueue();
+      return;
     }
+    boolean current = at == index;
+    tracks.remove(at);
+    tracksVersion++;
+    if (at < index)
+      index--;
+    if (current)
+      select(Math.min(at, tracks.size() - 1));
+    saveQueue();
+  }
+  public void clearQueue() {
+    if (importing)
+      cancelImport.set(true);
+    ready = false;
+    if (eq != null) {
+      eq.release();
+      eq = null;
+    }
+    if (player != null) {
+      player.release();
+      player = null;
+    }
+    tracks.clear();
+    index = -1;
+    generation++;
+    tracksVersion++;
+    saveQueue();
+    snapshot();
+    notifyNow();
   }
   public void select(int n) {
+    select(n, true);
+  }
+  public void select(int n, boolean autoplay) {
     if (n < 0 || n >= tracks.size())
       return;
     ready = false;
@@ -258,12 +495,29 @@ public class PlayerService extends Service {
               .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
               .build());
       player.setWakeMode(this, PowerManager.PARTIAL_WAKE_LOCK);
-      player.setDataSource(this, tracks.get(n).uri);
+      Track chosen = tracks.get(n);
+      if (chosen.headers != null)
+        player.setDataSource(this, chosen.uri, chosen.headers);
+      else
+        player.setDataSource(this, chosen.uri);
       if (surface != null)
         player.setSurface(surface);
       player.setOnPreparedListener(p -> {
+        if (player != p)
+          return;
         ready = true;
-        play();
+        if (chosen.startPosition > 0 && p.getDuration() > 0) {
+          p.seekTo(chosen.startPosition, MediaPlayer.SEEK_CLOSEST);
+          chosen.startPosition = 0;
+        }
+        if (autoplay)
+          play();
+        session.setMetadata(new MediaMetadata.Builder()
+                .putString(MediaMetadata.METADATA_KEY_TITLE, chosen.name)
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, "RetroPlayer")
+                .putLong(MediaMetadata.METADATA_KEY_DURATION, Math.max(0, p.getDuration()))
+                .build());
+        snapshot();
         notifyNow();
       });
       player.setOnCompletionListener(p -> {
@@ -279,12 +533,16 @@ public class PlayerService extends Service {
       });
       player.setOnErrorListener((p, w, e) -> {
         ready = false;
+        if (browser != null)
+          browser.handoffPending = false;
         error = "Formato não suportado ou arquivo indisponível (" + w + ").";
         return true;
       });
       player.prepareAsync();
       notifyNow();
     } catch (Exception e) {
+      if (browser != null)
+        browser.handoffPending = false;
       error = e.getMessage();
     }
   }
@@ -315,11 +573,13 @@ public class PlayerService extends Service {
                       if (!ready)
                         return;
                       if (change == AudioManager.AUDIOFOCUS_LOSS) {
-                        player.pause();
+                        if (player.isPlaying())
+                          player.pause();
                         resumeOnFocus = false;
                       } else if (change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
                         resumeOnFocus = player.isPlaying();
-                        player.pause();
+                        if (resumeOnFocus)
+                          player.pause();
                       } else if (change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK)
                         player.setVolume(.2f, .2f);
                       else if (change == AudioManager.AUDIOFOCUS_GAIN) {
@@ -333,6 +593,11 @@ public class PlayerService extends Service {
                     })
                     .build();
       if (am.requestAudioFocus(focus) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+        if (browser != null) {
+          browser.pauseMedia();
+          browser.active = false;
+          browser.handoffPending = false;
+        }
         player.start();
         snapshot();
         notifyNow();
@@ -342,7 +607,8 @@ public class PlayerService extends Service {
   public void pause() {
     if (ready) {
       resumeOnFocus = false;
-      player.pause();
+      if (player.isPlaying())
+        player.pause();
       snapshot();
       notifyNow();
     }
@@ -461,7 +727,7 @@ public class PlayerService extends Service {
       if (run == tunnelGeneration && room && !tunnelStatus.startsWith("Sala online")) {
         closeRoom();
         error = "Não foi possível conectar ao TryCloudflare em 60 segundos. Tente outra rede e "
-                + "abra a sala novamente.";
+            + "abra a sala novamente.";
       }
     }, 60000);
   }
@@ -484,6 +750,13 @@ public class PlayerService extends Service {
   }
   @Override
   public void onDestroy() {
+    ready = false;
+    cancelImport.set(true);
+    library.shutdownNow();
+    if (noisy != null)
+      unregisterReceiver(noisy);
+    if (browser != null)
+      browser.destroy();
     main.removeCallbacksAndMessages(null);
     closeRoom();
     if (server != null)

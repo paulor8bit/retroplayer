@@ -4,22 +4,36 @@ Player Android de música e vídeo com visual retrô inspirado no Winamp, navega
 
 ## Instalar
 
-Baixe **[apk/RetroPlayer.apk](apk/RetroPlayer.apk)** ou o APK na seção **Releases**. Compatível com **Android 8 ou superior, ARM64**. O APK desta primeira versão usa assinatura de desenvolvimento.
+Baixe **[apk/RetroPlayer.apk](apk/RetroPlayer.apk)** ou o APK na seção **Releases**. Compatível com **Android 8 ou superior, ARM64**. A versão 1.1 usa assinatura de desenvolvimento e o mesmo identificador/assinante da 1.0, permitindo atualizar sem desinstalar.
 
 ## Usar
 
-1. Toque em **Abrir arquivos** para adicionar músicas ou vídeos do celular. É possível escolher vários arquivos.
-2. Controle reprodução, avanço, posição, volume, repetição e modo aleatório. **EQ** ajusta o áudio local quando disponível no aparelho.
-3. Toque em **Criar sala**, aguarde **Sala online** e use **Compartilhar** ou **Copiar link**.
-4. O convidado abre o link no navegador e toca em **Entrar e ouvir junto**. Não precisa instalar o aplicativo.
-5. O anfitrião controla a faixa, o play, a pausa e a posição. Todos podem conversar no chat e escolher seu nome.
-6. **Encerrar sala** invalida o link e limpa o histórico. O histórico existe apenas na memória durante a sessão.
+A interface do aplicativo é nativa Android, com abas **Player**, **Biblioteca**, **Sala** e **Web**, barra de navegação inferior e miniplayer. A capa e o mascote animado são imagens originais; os controles e ícones são vetores nativos.
 
-### Internet
+1. Na aba **Biblioteca**, use **Um arquivo** para selecionar uma mídia, ou **Escolher pasta** para importar todos os áudios e vídeos da pasta e de suas subpastas. O botão **+** também permite escolher vários arquivos.
+2. A importação acontece fora da interface, informa o progresso e pode ser cancelada. Arquivos que já estão na fila não são adicionados novamente. Imagens e documentos ficam de fora. A pasta permanece autorizada pelo seletor do Android; arquivos movidos ou excluídos podem exigir nova seleção.
+3. Busque arquivos na lista, toque para reproduzir e use o menu da faixa para removê-la. **Limpar lista** não apaga arquivos do aparelho.
+4. No **Player**, controle reprodução, avanço, posição, volume, repetição e modo aleatório. O equalizador fica no ícone de ajustes e no menu superior.
+5. Na aba **Sala**, use **Criar / encerrar**, aguarde **Sala online** e toque em **Convidar** ou **Copiar link**. O convidado abre o link no navegador, toca em **Entrar e ouvir junto** e participa do chat.
+6. O anfitrião controla a reprodução. Encerrar a sala invalida o link e limpa o chat temporário.
 
-**Navegar na internet** abre um navegador integrado com pesquisa, histórico de navegação da sessão e reprodução de sites. **Tocar link** adiciona um endereço HTTPS direto de áudio ou vídeo ao player e permite acompanhar essa faixa na sala.
+O Android impõe restrições ao seletor de pastas, como a raiz de Download em versões recentes. Escolha uma subpasta ou use a seleção de arquivo quando o seletor não permitir uma pasta. [Documentação do seletor Android](https://developer.android.com/training/data-storage/shared/documents-files).
 
-Uma página do YouTube ou de outro site não equivale a um link direto de mídia. O conteúdo reproduzido dentro do navegador é local; páginas, logins, DRM e anúncios não são retransmitidos. A compatibilidade dos sites depende do Android System WebView instalado. Arquivos MP3 e MP4 com codecs comuns têm maior compatibilidade entre aparelhos e navegadores. Links remotos também dependem das permissões de acesso do servidor de origem e podem expirar.
+### Navegador e favoritos
+
+Na aba **Web**, abra o navegador para pesquisar ou digitar um endereço. Toque na **estrela** para salvar o site com um nome. O ícone de biblioteca no topo abre os favoritos; um toque abre o site e um toque prolongado permite removê-lo. Os favoritos e a preferência de áudio em segundo plano ficam salvos no aparelho, inclusive após encerrar o app.
+
+O ícone de **fones** e a opção **Ouvir no player** abrem um link HTTPS direto de áudio ou vídeo no player. Uma página do YouTube ou de outro site não equivale a um endereço direto de mídia.
+
+### Áudio com o aplicativo minimizado
+
+O player toca no serviço de reprodução em primeiro plano, com controles na notificação, MediaSession e wakelock do MediaPlayer. Mudar de aba, abrir o navegador, minimizar o app ou apagar a tela não encerra esse player. Abrir o navegador mantém a música atual até o site começar a reproduzir.
+
+A sessão WebView pertence ao serviço e não é destruída nem pausada pela saída da tela do navegador quando **Áudio em segundo plano** está ativado. Ao minimizar, uma mídia HTML com endereço HTTPS direto é transferida ao player nativo, mantendo a posição quando o conteúdo permite seek. A transferência usa o agente do navegador, o referer e os cookies daquele endereço apenas em memória; esses cabeçalhos não são gravados na fila.
+
+Sites com DRM, conteúdo blob/MSE, reprodução em iframe de outra origem, Web Audio ou regras próprias de visibilidade podem interromper o áudio. A retenção da sessão WebView não garante segundo plano em todo site. Para áudio com tela apagada, prefira arquivo local, rádio ou endereço direto compatível no player. A versão e o comportamento do Android System WebView também influenciam o resultado. [API do WebView](https://developer.android.com/reference/android/webkit/WebView).
+
+O áudio que toca dentro de uma página é local; páginas, DRM e logins não são retransmitidos na sala. Links remotos compartilhados precisam funcionar também no navegador do convidado, sem depender dos cookies do anfitrião. MP3 e MP4 com codecs comuns oferecem maior compatibilidade.
 
 ## Como a sala funciona
 
@@ -50,9 +64,13 @@ sh tests/run.sh
 ./gradlew lintDebug
 ```
 
-Os testes de integração executam o servidor HTTP real com adaptadores de arquivo no JVM: token, sala encerrada, mídia completa, ranges, faixa antiga, redirecionamento remoto, chat e bloqueio de POST entre origens. O teste JavaScript verifica ativação pelo usuário, pausa, seek, correção de deriva, troca de faixa e encerramento.
+Os testes de integração executam o servidor HTTP real com adaptadores de arquivo no JVM: token, sala encerrada, mídia completa, ranges, faixa antiga, redirecionamento remoto, chat e bloqueio de POST entre origens. O teste JavaScript verifica ativação pelo usuário, pausa, seek, correção de deriva, troca de faixa e encerramento. Os testes adicionais cobrem subpastas, ciclos, cancelamento, duplicatas, pastas inacessíveis e persistência/validação dos favoritos.
 
 O executável do túnel foi executado neste ambiente Android e conectou ao TryCloudflare. Os testes de JVM e JavaScript não substituem testes de instalação, interface, codecs, serviço em segundo plano e navegação em aparelhos reais. Veja [VALIDATION.md](VALIDATION.md) para os resultados desta entrega.
+
+## Arte
+
+Os arquivos `deck_cover.png` e `cassette_sprites.png` ficam em `app/src/main/res/drawable-nodpi/`. O sprite usa quatro quadros em grade 2 × 2, desenhados no Canvas nativo. Os prompts completos e o método de geração estão em [artwork/PROMPTS.md](artwork/PROMPTS.md).
 
 ## Terceiros
 

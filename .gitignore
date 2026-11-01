@@ -11,3 +11,6 @@ app/src/main/jniLibs/
 tests/classes/
 tests/fixture.bin
 tests/guest-script.js
+
+tools/main-dialogs.tmp
+tools/adb-runtime/

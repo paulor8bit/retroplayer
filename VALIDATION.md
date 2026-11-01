@@ -1,14 +1,20 @@
-# Validação da entrega — RetroPlayer 1.0
+# Validação da entrega — RetroPlayer 1.1
 
-- Compilação `assembleDebug`: passou.
-- Android Lint `lintDebug`: passou, sem erros. O relatório inclui avisos de internacionalização, suporte exclusivo ARM64, JavaScript necessário ao navegador, configuração de backup e wakelock do serviço.
-- Testes de integração HTTP: 14 verificações passaram (acesso por token, página da sala, mídia completa, intervalos de bytes, faixa antiga, chat, origem das mensagens, link remoto e sala encerrada).
-- Testes JavaScript: passaram para ativação pelo usuário, pausa, seek, correção de deriva, troca de faixa e encerramento da sala.
-- Assinatura APK: verificada com `apksigner`, esquema v2, um assinante de desenvolvimento.
-- Conteúdo do APK: página do convidado e executável Cloudflared conferidos; executável idêntico ao binário preparado.
-- Túnel: o executável Cloudflared ARM64 foi executado neste ambiente Android, gerou uma URL TryCloudflare e registrou uma conexão HTTP/2 com a Cloudflare.
-- APK salvo em `/sdcard/Download/RetroPlayer.apk` e em `apk/RetroPlayer.apk`; hashes conferidos.
+- `assembleDebug`: passou.
+- Android Lint `lintDebug`: passou, **0 erros e 8 avisos**. Os avisos remanescentes abrangem internacionalização, ABI ARM64, configuração de backup e wakelock do serviço de sala.
+- Integração HTTP: **14 verificações passaram**, cobrindo acesso por token, página da sala, mídia completa, intervalos de bytes, faixa antiga, chat, origem das mensagens, link remoto e encerramento da sala.
+- Biblioteca/favoritos: **14 verificações passaram**, cobrindo subpastas, arquivos repetidos, ciclos de diretórios, pastas sem acesso, cancelamento, filtro de mídia, favoritos persistidos, atualização sem duplicatas, esquemas inválidos e JSON corrompido.
+- JavaScript do convidado: passou para ativação pelo usuário, pausa, seek, correção de deriva, troca de faixa e encerramento.
+- APK: assinatura v2 verificada com `apksigner`; mesmo certificado da versão 1.0. `applicationId` continua `br.com.retroplayer`, agora com `versionCode=2` e `versionName=1.1`.
+- Pacote conferido: capa PNG, sprite PNG com transparência, classes de importação/favoritos/navegador persistente e executável Cloudflared ARM64 presentes.
+- Cópia em `/sdcard/Download/RetroPlayer.apk` idêntica à versão de `apk/RetroPlayer.apk` por SHA256.
 
-A interface, instalação do APK, codecs, sites no WebView e ciclo completo entre dois aparelhos não foram validados em dispositivo instalado. O ADB deste ambiente não pôde ser executado por incompatibilidade de biblioteca C++; os testes HTTP/JavaScript usam JVM e adaptadores de arquivo. Não há alegação de precisão de sincronia medida entre aparelhos.
+## Limites da validação
 
-SHA256 do APK: `21735ec0f8acf0393ecc657c8f973825a9a0367ea226879cd897bc5f949282bb`.
+O ADB foi executado usando uma cópia isolada da biblioteca C++ atual, sem alterar a instalação do Termux. **Não existe aparelho autorizado conectado ao ADB**. Portanto não foram validados em APK instalado: aparência/layout, seleção via DocumentsProvider real, codecs, favoritos na UI, navegação em sites, reprodução com tela apagada ou sincronia medida entre dois aparelhos.
+
+O suporte a segundo plano foi implementado com serviço de reprodução, MediaSession, wakelock do MediaPlayer, sessão WebView mantida pelo serviço e transferência de mídia HTTPS direta com posição/cabeçalhos temporários. A permanência do som em sites protegidos ou com blob/MSE/iframes depende do site e do WebView e não é garantida. O teste de conectividade do executável Cloudflared registrado na versão 1.0 não foi repetido; o binário continua idêntico e foi conferido no novo pacote.
+
+As imagens foram criadas com a ferramenta integrada image_gen, incorporadas ao projeto e inspecionadas. A capa mede 1254 × 1254 em RGB e o sprite 1254 × 1254 em RGBA, grade 2 × 2. Os prompts estão em [artwork/PROMPTS.md](artwork/PROMPTS.md).
+
+SHA256 do APK: `43cbf06b554bad1b535bbcd9f1b9904cb7f9b26ab69392c562cd2d734d013554`.

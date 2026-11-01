@@ -1,10 +1,10 @@
 package br.com.retroplayer;
-import java.net.*;
+import android.content.res.AssetFileDescriptor;
 import java.io.*;
+import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
-import android.content.res.AssetFileDescriptor;
 import org.json.*;
 
 public class RoomServer {
@@ -225,9 +225,9 @@ public class RoomServer {
     String h = "HTTP/1.1 " + status + " " + statusText + "\r\nContent-Type: " + mime + "\r\n"
         + (size >= 0 ? "Content-Length: " + size + "\r\n" : "")
         + ("Connection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: "
-           + "nosniff\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src "
-           + "'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src 'self' "
-           + "https:; connect-src 'self'; frame-ancestors 'none'\r\n")
+            + "nosniff\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src "
+            + "'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src 'self' "
+            + "https:; connect-src 'self'; frame-ancestors 'none'\r\n")
         + extra + "\r\n";
     out.write(h.getBytes(StandardCharsets.UTF_8));
   }

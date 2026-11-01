@@ -1,148 +1,208 @@
 package br.com.retroplayer;
+
 import android.app.*;
-import android.os.*;
 import android.content.*;
 import android.content.pm.PackageManager;
 import android.graphics.*;
 import android.graphics.drawable.*;
+import android.media.*;
 import android.net.Uri;
+import android.os.*;
+import android.text.*;
 import android.view.*;
 import android.widget.*;
-import android.media.*;
-import org.json.*;
 import java.util.*;
+import org.json.*;
 
 public class MainActivity extends Activity {
-  final int bg = Color.rgb(14, 16, 23), panel = Color.rgb(25, 29, 40),
-            lime = Color.rgb(201, 255, 102), muted = Color.rgb(151, 161, 179);
-  Handler handler = new Handler();
+  final int bg = Ui.BG, panel = Ui.PANEL, lime = Ui.LIME, muted = Ui.MUTED;
+  final Handler handler = new Handler(Looper.getMainLooper());
   PlayerService service;
-  LinearLayout root, queue, chatRows;
-  TextView title, time, meta, status, link, queueTitle;
-  Button play, roomButton, repeat, shuffle;
-  SeekBar progress;
+  FrameLayout pages, artFrame;
+  LinearLayout shell, root, chatRows, mini, roomPage, webPage;
+  ScrollView playerPage;
+  View libraryPage;
+  TextView title, artist, elapsed, total, meta, status, link, queueTitle, importStatus, miniTitle,
+      miniSubtitle, chatHint, headerSubtitle, webSummary;
+  ImageView play, miniPlay, shuffle, repeat, artwork;
   SurfaceView video;
-  TextView artwork;
-  Wave wave;
-  EditText message;
-  String nickname = "Anfitrião";
-  boolean dragging = false;
-  int lastQueue = -1, lastIndex = -2, lastChat = -1;
-  String lastError = "";
-  boolean active = false;
+  SeekBar progress;
+  Ui.SpriteView mascot;
+  EditText message, search;
+  ListView queue;
+  QueueAdapter adapter;
+  String nickname = "Anfitrião", lastError = "", query = "";
+  long lastVersion = -1;
+  int lastIndex = -2, lastChat = -1, tab = 0;
+  boolean active, dragging;
+  final ArrayList<Integer> visibleTracks = new ArrayList<>();
+  final ArrayList<View> pageViews = new ArrayList<>();
+  final ArrayList<LinearLayout> navItems = new ArrayList<>();
   int dp(float n) {
-    return (int) (n * getResources().getDisplayMetrics().density + .5f);
+    return Ui.dp(this, n);
+  }
+  TextView text(String s, int size, int color) {
+    return Ui.text(this, s, size, color);
+  }
+  LinearLayout vertical() {
+    return Ui.column(this);
+  }
+  LinearLayout row() {
+    return Ui.row(this);
+  }
+  void gap(LinearLayout l, int n) {
+    Ui.gap(this, l, n);
+  }
+  Button button(String s, boolean primary, Runnable r) {
+    return Ui.button(this, s, primary, r);
+  }
+  GradientDrawable shape(int color, int stroke) {
+    GradientDrawable d = Ui.shape(this, color, 16);
+    d.setStroke(dp(1), stroke);
+    return d;
   }
   @Override
-  public void onCreate(Bundle b) {
-    super.onCreate(b);
+  public void onCreate(Bundle saved) {
+    super.onCreate(saved);
     getWindow().setStatusBarColor(bg);
-    getWindow().setNavigationBarColor(bg);
+    getWindow().setNavigationBarColor(panel);
     nickname = getPreferences(0).getString("nickname", "Anfitrião");
     startForegroundService(new Intent(this, PlayerService.class));
     build();
+    if (saved != null)
+      switchTab(saved.getInt("tab", 0));
     if (Build.VERSION.SDK_INT >= 33
         && checkSelfPermission("android.permission.POST_NOTIFICATIONS")
             != PackageManager.PERMISSION_GRANTED)
       requestPermissions(new String[] {"android.permission.POST_NOTIFICATIONS"}, 4);
   }
-  TextView text(String v, int size, int color) {
-    TextView t = new TextView(this);
-    t.setText(v);
-    t.setTextSize(size);
-    t.setTextColor(color);
-    t.setTypeface(Typeface.MONOSPACE);
-    return t;
-  }
-  GradientDrawable shape(int color, int stroke) {
-    GradientDrawable d = new GradientDrawable();
-    d.setColor(color);
-    d.setCornerRadius(dp(12));
-    d.setStroke(dp(1), stroke);
-    return d;
-  }
-  LinearLayout vertical() {
-    LinearLayout l = new LinearLayout(this);
-    l.setOrientation(LinearLayout.VERTICAL);
-    return l;
-  }
-  LinearLayout row() {
-    LinearLayout l = new LinearLayout(this);
-    l.setGravity(Gravity.CENTER_VERTICAL);
-    return l;
-  }
-  void gap(LinearLayout parent, int height) {
-    View v = new View(this);
-    parent.addView(v, new LinearLayout.LayoutParams(1, dp(height)));
-  }
-  Button button(String label, boolean primary, Runnable action) {
-    Button b = new Button(this);
-    b.setText(label);
-    b.setTextSize(12);
-    b.setAllCaps(false);
-    b.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
-    b.setTextColor(primary ? bg : Color.WHITE);
-    b.setBackground(
-        shape(primary ? lime : Color.rgb(41, 46, 61), primary ? lime : Color.rgb(65, 71, 89)));
-    b.setMinHeight(dp(45));
-    b.setPadding(dp(8), 0, dp(8), 0);
-    b.setOnClickListener(v -> action.run());
-    return b;
-  }
   void weight(LinearLayout l, View v) {
     LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(48), 1);
-    p.setMargins(dp(3), 0, dp(3), 0);
+    p.setMargins(dp(4), 0, dp(4), 0);
     l.addView(v, p);
   }
-  LinearLayout card(String heading) {
+  LinearLayout padded() {
     LinearLayout l = vertical();
-    l.setPadding(dp(14), dp(14), dp(14), dp(14));
-    l.setBackground(shape(panel, Color.rgb(53, 59, 76)));
-    if (heading != null) {
-      l.addView(text(heading, 12, muted));
-      gap(l, 12);
-    }
-    LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
-    p.bottomMargin = dp(14);
-    root.addView(l, p);
+    l.setPadding(dp(20), dp(8), dp(20), dp(22));
     return l;
   }
+  ScrollView scroller(LinearLayout content) {
+    ScrollView s = new ScrollView(this);
+    s.setFillViewport(true);
+    s.setClipToPadding(false);
+    s.setVerticalScrollBarEnabled(false);
+    s.addView(content);
+    return s;
+  }
+  void section(LinearLayout parent, String label) {
+    TextView t = Ui.label(this, label);
+    parent.addView(t);
+    gap(parent, 12);
+  }
+  void icon(LinearLayout parent, String kind, int color, Runnable action, int size) {
+    ImageView v = Ui.iconButton(this, kind, color, action);
+    parent.addView(v, new LinearLayout.LayoutParams(dp(size), dp(size)));
+  }
   void build() {
-    ScrollView scroll = new ScrollView(this);
-    scroll.setFillViewport(true);
-    scroll.setBackgroundColor(bg);
-    root = vertical();
-    root.setPadding(dp(16), dp(20), dp(16), dp(24));
-    scroll.addView(root);
-    setContentView(scroll);
+    shell = vertical();
+    shell.setBackgroundColor(bg);
+    setContentView(shell);
     LinearLayout header = row();
-    TextView logo = text("ϟ RETROPLAYER", 25, lime);
-    logo.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
-    header.addView(logo, new LinearLayout.LayoutParams(0, -2, 1));
-    header.addView(text("TOGETHER\nv1.0 / STEREO", 10, muted));
-    root.addView(header);
-    gap(root, 6);
-    root.addView(text("Seu som. Sua turma. A mesma frequência.", 11, muted));
-    gap(root, 22);
-    LinearLayout p = card("01 / NOW PLAYING");
-    title = text("Abra sua primeira faixa", 19, Color.WHITE);
-    title.setMaxLines(2);
-    p.addView(title);
-    gap(p, 6);
-    meta = text("MÚSICA + VÍDEO  •  LOCAL PLAYER", 10, lime);
-    p.addView(meta);
-    gap(p, 14);
-    FrameLayout visual = new FrameLayout(this);
-    visual.setBackground(shape(Color.rgb(8, 14, 13), Color.rgb(47, 67, 44)));
-    wave = new Wave();
-    visual.addView(wave, new FrameLayout.LayoutParams(-1, -1));
-    artwork = text("ϟ", 62, lime);
-    artwork.setGravity(Gravity.CENTER);
-    visual.addView(artwork, new FrameLayout.LayoutParams(-1, -1));
+    header.setPadding(dp(16), dp(8), dp(12), dp(8));
+    ImageView mark = Ui.icon(this, "headphones", lime, 25);
+    header.addView(mark, new LinearLayout.LayoutParams(dp(38), dp(48)));
+    LinearLayout heading = vertical();
+    TextView brand = text("RetroPlayer", 23, Ui.TEXT);
+    brand.setTypeface(Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+    heading.addView(brand);
+    headerSubtitle = Ui.label(this, "SEU SOM, EM QUALQUER LUGAR");
+    headerSubtitle.setTextSize(9);
+    heading.addView(headerSubtitle);
+    header.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
+    icon(header, "plus", Ui.TEXT, this::addMenu, 44);
+    icon(header, "more", Ui.TEXT, this::menu, 40);
+    shell.addView(header);
+    pages = new FrameLayout(this);
+    shell.addView(pages, new LinearLayout.LayoutParams(-1, 0, 1));
+    buildPlayer();
+    buildLibrary();
+    buildRoom();
+    buildWeb();
+    for (View view : pageViews) pages.addView(view, new FrameLayout.LayoutParams(-1, -1));
+    mini = row();
+    mini.setPadding(dp(12), dp(6), dp(10), dp(6));
+    mini.setBackground(Ui.shape(this, Ui.RAISED, 16));
+    LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(-1, dp(68));
+    mp.setMargins(dp(12), dp(4), dp(12), dp(6));
+    shell.addView(mini, mp);
+    ImageView cover = new ImageView(this);
+    cover.setImageResource(R.drawable.deck_cover);
+    cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+    cover.setBackground(Ui.shape(this, bg, 9));
+    cover.setClipToOutline(true);
+    mini.addView(cover, new LinearLayout.LayoutParams(dp(48), dp(48)));
+    LinearLayout ml = vertical();
+    ml.setPadding(dp(12), 0, dp(6), 0);
+    miniTitle = text("Sua música está aqui", 13, Ui.TEXT);
+    miniTitle.setMaxLines(1);
+    miniTitle.setEllipsize(TextUtils.TruncateAt.END);
+    ml.addView(miniTitle);
+    miniSubtitle = text("Escolha um arquivo para começar", 11, muted);
+    ml.addView(miniSubtitle);
+    mini.addView(ml, new LinearLayout.LayoutParams(0, -2, 1));
+    miniPlay = Ui.iconButton(this, "play", lime, () -> {
+      if (service != null)
+        service.controlToggle();
+    });
+    miniPlay.setContentDescription("Reproduzir ou pausar");
+    mini.addView(miniPlay, new LinearLayout.LayoutParams(dp(46), dp(46)));
+    icon(mini, "next", Ui.TEXT, () -> {
+      if (service != null)
+        service.next(1);
+    }, 42);
+    mini.setOnClickListener(v -> switchTab(0));
+    LinearLayout nav = row();
+    nav.setPadding(dp(8), dp(2), dp(8), dp(4));
+    nav.setBackgroundColor(panel);
+    String[] names = {"Player", "Biblioteca", "Sala", "Web"},
+             icons = {"headphones", "library", "room", "web"};
+    for (int i = 0; i < 4; i++) {
+      final int n = i;
+      LinearLayout item = vertical();
+      item.setGravity(Gravity.CENTER);
+      item.setBackground(Ui.ripple(this, Color.TRANSPARENT, 16));
+      ImageView image = Ui.icon(this, icons[i], muted, 21);
+      item.addView(image, new LinearLayout.LayoutParams(dp(38), dp(34)));
+      TextView label = text(names[i], 11, muted);
+      item.addView(label);
+      item.setOnClickListener(v -> switchTab(n));
+      item.setContentDescription(names[i]);
+      navItems.add(item);
+      nav.addView(item, new LinearLayout.LayoutParams(0, dp(60), 1));
+    }
+    shell.addView(nav);
+    switchTab(0);
+  }
+  void buildPlayer() {
+    root = padded();
+    LinearLayout top = row();
+    TextView now = Ui.label(this, "TOCANDO AGORA");
+    top.addView(now, new LinearLayout.LayoutParams(0, -2, 1));
+    meta = Ui.label(this, "ESTÉREO");
+    meta.setTextColor(lime);
+    top.addView(meta);
+    root.addView(top);
+    gap(root, 18);
+    artFrame = new FrameLayout(this);
+    artFrame.setBackground(Ui.shape(this, panel, 24));
+    artFrame.setClipToOutline(true);
+    artwork = new ImageView(this);
+    artwork.setImageResource(R.drawable.deck_cover);
+    artwork.setScaleType(ImageView.ScaleType.CENTER_CROP);
+    artFrame.addView(artwork, new FrameLayout.LayoutParams(-1, -1));
     video = new SurfaceView(this);
     video.setVisibility(View.GONE);
-    FrameLayout.LayoutParams vp = new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER);
-    visual.addView(video, vp);
+    artFrame.addView(video, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
     video.getHolder().addCallback(new SurfaceHolder.Callback() {
       public void surfaceCreated(SurfaceHolder h) {
         if (service != null)
@@ -157,15 +217,29 @@ public class MainActivity extends Activity {
           service.attach(null);
       }
     });
-    p.addView(visual, new LinearLayout.LayoutParams(-1, dp(175)));
-    gap(p, 12);
-    time = text("00:00 / 00:00", 28, lime);
-    p.addView(time);
+    int screenWidth = getResources().getDisplayMetrics().widthPixels;
+    int side = Math.min(screenWidth - dp(40), dp(320));
+    LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-1, side);
+    root.addView(artFrame, ap);
+    gap(root, 19);
+    title = text("Dê play no seu mundo.", 23, Ui.TEXT);
+    title.setTypeface(Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+    title.setMaxLines(2);
+    title.setEllipsize(TextUtils.TruncateAt.END);
+    root.addView(title);
+    gap(root, 5);
+    artist = text("Adicione uma música, um vídeo ou uma pasta", 13, muted);
+    root.addView(artist);
+    gap(root, 16);
     progress = new SeekBar(this);
+    progress.setPadding(dp(2), 0, dp(2), 0);
     progress.setProgressTintList(android.content.res.ColorStateList.valueOf(lime));
     progress.setThumbTintList(android.content.res.ColorStateList.valueOf(lime));
     progress.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-      public void onProgressChanged(SeekBar b, int n, boolean user) {}
+      public void onProgressChanged(SeekBar b, int value, boolean user) {
+        if (user)
+          elapsed.setText(clock(value / 1000));
+      }
       public void onStartTrackingTouch(SeekBar b) {
         dragging = true;
       }
@@ -175,49 +249,68 @@ public class MainActivity extends Activity {
           service.seek(b.getProgress());
       }
     });
-    p.addView(progress);
-    gap(p, 10);
+    root.addView(progress, new LinearLayout.LayoutParams(-1, dp(28)));
+    LinearLayout times = row();
+    elapsed = text("0:00", 11, muted);
+    elapsed.setTypeface(Typeface.MONOSPACE);
+    total = text("0:00", 11, muted);
+    total.setTypeface(Typeface.MONOSPACE);
+    times.addView(elapsed, new LinearLayout.LayoutParams(0, -2, 1));
+    times.addView(total);
+    root.addView(times);
+    gap(root, 10);
     LinearLayout controls = row();
-    weight(controls, button("|◀", false, () -> {
+    controls.setGravity(Gravity.CENTER);
+    shuffle = Ui.iconButton(this, "shuffle", muted, () -> {
+      if (service != null) {
+        service.shuffle = !service.shuffle;
+        updateModeIcons();
+      }
+    });
+    controls.addView(shuffle, new LinearLayout.LayoutParams(0, dp(48), 1));
+    icon(controls, "previous", Ui.TEXT, () -> {
       if (service != null)
         service.next(-1);
-    }));
-    play = button("▶ PLAY", true, () -> {
+    }, 52);
+    play = Ui.iconButton(this, "play", bg, () -> {
       if (service != null)
         service.toggle();
     });
-    weight(controls, play);
-    weight(controls, button("▶|", false, () -> {
+    play.setContentDescription("Reproduzir ou pausar");
+    play.setBackground(Ui.ripple(this, lime, 36));
+    play.setPadding(dp(20), dp(20), dp(20), dp(20));
+    LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(dp(70), dp(70));
+    pp.setMargins(dp(6), 0, dp(6), 0);
+    controls.addView(play, pp);
+    icon(controls, "next", Ui.TEXT, () -> {
       if (service != null)
         service.next(1);
-    }));
-    p.addView(controls);
-    gap(p, 10);
-    LinearLayout extras = row();
-    shuffle = button("Aleatório", false, () -> {
-      if (service != null) {
-        service.shuffle = !service.shuffle;
-        shuffle.setTextColor(service.shuffle ? lime : Color.WHITE);
-      }
-    });
-    repeat = button("Repetir", false, () -> {
+    }, 52);
+    repeat = Ui.iconButton(this, "repeat", muted, () -> {
       if (service != null) {
         service.repeat = !service.repeat;
-        repeat.setTextColor(service.repeat ? lime : Color.WHITE);
+        updateModeIcons();
       }
     });
-    weight(extras, shuffle);
-    weight(extras, repeat);
-    weight(extras, button("EQ", false, this::equalizer));
-    p.addView(extras);
-    gap(p, 12);
-    LinearLayout vol = row();
-    vol.addView(text("VOL", 10, muted));
-    SeekBar volume = new SeekBar(this);
+    controls.addView(repeat, new LinearLayout.LayoutParams(0, dp(48), 1));
+    root.addView(controls);
+    gap(root, 14);
+    LinearLayout actions = row();
+    weight(actions, button("Adicionar mídia", false, this::addMenu));
+    weight(actions, button("Ouvir com alguém", false, () -> switchTab(2)));
+    root.addView(actions);
+    gap(root, 16);
+    LinearLayout extras = row();
+    ImageView eq = Ui.iconButton(this, "equalizer", muted, this::equalizer);
+    eq.setContentDescription("Equalizador");
+    extras.addView(eq, new LinearLayout.LayoutParams(dp(46), dp(46)));
+    extras.addView(text("Volume", 11, muted));
+    SeekBar vol = new SeekBar(this);
     AudioManager audio = getSystemService(AudioManager.class);
-    volume.setMax(audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
-    volume.setProgress(audio.getStreamVolume(AudioManager.STREAM_MUSIC));
-    volume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+    vol.setMax(audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+    vol.setProgress(audio.getStreamVolume(AudioManager.STREAM_MUSIC));
+    vol.setProgressTintList(android.content.res.ColorStateList.valueOf(lime));
+    vol.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
       public void onProgressChanged(SeekBar b, int n, boolean user) {
         if (user)
           audio.setStreamVolume(AudioManager.STREAM_MUSIC, n, 0);
@@ -225,129 +318,473 @@ public class MainActivity extends Activity {
       public void onStartTrackingTouch(SeekBar b) {}
       public void onStopTrackingTouch(SeekBar b) {}
     });
-    vol.addView(volume, new LinearLayout.LayoutParams(0, -2, 1));
-    p.addView(vol);
-    LinearLayout files = card(null);
-    LinearLayout fr = row();
-    weight(fr, button("+ Abrir arquivos", true, this::pick));
-    weight(fr, button("Entrar por link", false, this::join));
-    files.addView(fr);
-    gap(files, 10);
-    files.addView(button("◎ Navegar na internet", false, () -> {
-      if (service != null)
-        service.pause();
-      startActivity(new Intent(this, BrowserActivity.class));
-    }));
-    gap(files, 14);
-    queueTitle = text("02 / PLAYLIST  •  0 FAIXAS", 12, muted);
-    files.addView(queueTitle);
-    gap(files, 10);
-    queue = vertical();
-    files.addView(queue);
-    LinearLayout room = card("03 / LISTEN TOGETHER");
-    room.addView(text("Aperte o play. Chame alguém.", 18, Color.WHITE));
-    gap(room, 8);
-    room.addView(
-        text("Compartilhe música ou vídeo em tempo real.\nO convidado entra pelo navegador.", 12,
-            muted));
-    gap(room, 12);
-    status = text("○ Sala fechada", 12, lime);
-    room.addView(status);
-    link = text("O link aparece aqui ao abrir a sala.", 11, muted);
+    extras.addView(vol, new LinearLayout.LayoutParams(0, dp(38), 1));
+    root.addView(extras);
+    playerPage = scroller(root);
+    pageViews.add(playerPage);
+  }
+  void buildLibrary() {
+    LinearLayout l = padded();
+    LinearLayout heading = row();
+    TextView t = text("Sua biblioteca", 25, Ui.TEXT);
+    t.setTypeface(Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+    heading.addView(t, new LinearLayout.LayoutParams(0, -2, 1));
+    icon(heading, "more", muted,
+        ()
+            -> new AlertDialog.Builder(this)
+                .setItems(new String[] {"Adicionar um arquivo", "Adicionar vários arquivos",
+                              "Adicionar uma pasta", "Limpar lista de reprodução"},
+                    (d, n) -> {
+                      if (n == 0)
+                        pick(false);
+                      if (n == 1)
+                        pick(true);
+                      if (n == 2)
+                        pickFolder();
+                      if (n == 3)
+                        clearQueue();
+                    })
+                .show(),
+        40);
+    l.addView(heading);
+    gap(l, 6);
+    queueTitle = text("Todas as suas músicas e vídeos", 13, muted);
+    l.addView(queueTitle);
+    gap(l, 17);
+    LinearLayout add = row();
+    weight(add, button("Um arquivo", false, () -> pick(false)));
+    Button folder = button("Escolher pasta", true, this::pickFolder);
+    weight(add, folder);
+    l.addView(add);
+    gap(l, 14);
+    LinearLayout find = row();
+    find.setBackground(Ui.shape(this, panel, 13));
+    find.addView(Ui.icon(this, "search", muted, 20), new LinearLayout.LayoutParams(dp(43), dp(44)));
+    search = new EditText(this);
+    search.setSingleLine();
+    search.setTextSize(14);
+    search.setHint("Buscar na lista de reprodução");
+    search.setHintTextColor(muted);
+    search.setTextColor(Ui.TEXT);
+    search.setBackgroundColor(Color.TRANSPARENT);
+    find.addView(search, new LinearLayout.LayoutParams(0, dp(46), 1));
+    l.addView(find);
+    search.addTextChangedListener(new TextWatcher() {
+      public void beforeTextChanged(CharSequence s, int a, int c, int f) {}
+      public void onTextChanged(CharSequence s, int a, int b, int c) {
+        query = s.toString().toLowerCase(Locale.ROOT);
+        filterQueue();
+      }
+      public void afterTextChanged(Editable e) {}
+    });
+    gap(l, 8);
+    LinearLayout importRow = row();
+    importStatus = text("", 12, lime);
+    importRow.addView(importStatus, new LinearLayout.LayoutParams(0, -2, 1));
+    ImageView cancel = Ui.iconButton(this, "close", muted, () -> {
+      if (service != null && service.importing)
+        service.cancelImport.set(true);
+    });
+    cancel.setContentDescription("Cancelar importação de pasta");
+    importRow.addView(cancel, new LinearLayout.LayoutParams(dp(36), dp(32)));
+    l.addView(importRow);
+    FrameLayout listHolder = new FrameLayout(this);
+    l.addView(listHolder, new LinearLayout.LayoutParams(-1, 0, 1));
+    queue = new ListView(this);
+    queue.setDivider(null);
+    queue.setCacheColorHint(bg);
+    queue.setSelector(Ui.ripple(this, Color.TRANSPARENT, 12));
+    adapter = new QueueAdapter();
+    queue.setAdapter(adapter);
+    listHolder.addView(queue, new FrameLayout.LayoutParams(-1, -1));
+    LinearLayout empty = vertical();
+    empty.setGravity(Gravity.CENTER);
+    mascot = new Ui.SpriteView(this);
+    empty.addView(mascot, new LinearLayout.LayoutParams(dp(155), dp(155)));
+    TextView emptyTitle = text("Sua próxima faixa mora aqui.", 18, Ui.TEXT);
+    emptyTitle.setGravity(Gravity.CENTER);
+    empty.addView(emptyTitle);
+    gap(empty, 8);
+    TextView hint =
+        text("Escolha um arquivo ou uma pasta.\nMúsicas e vídeos entram na mesma fila.", 13, muted);
+    hint.setGravity(Gravity.CENTER);
+    empty.addView(hint);
+    listHolder.addView(empty, new FrameLayout.LayoutParams(-1, -1));
+    queue.setEmptyView(empty);
+    queue.setOnItemClickListener((p, v, n, id) -> {
+      if (service != null) {
+        service.select(visibleTracks.get(n));
+        switchTab(0);
+      }
+    });
+    queue.setOnItemLongClickListener((p, v, n, id) -> {
+      if (service == null)
+        return true;
+      int at = visibleTracks.get(n);
+      new AlertDialog.Builder(this)
+          .setTitle(service.tracks.get(at).name)
+          .setItems(new String[] {"Reproduzir agora", "Remover da lista"},
+              (d, w) -> {
+                if (service == null)
+                  return;
+                if (w == 0)
+                  service.select(at);
+                else
+                  service.removeTrack(at);
+              })
+          .show();
+      return true;
+    });
+    libraryPage = l;
+    pageViews.add(l);
+  }
+  void buildRoom() {
+    roomPage = padded();
+    section(roomPage, "OUVIR JUNTO");
+    LinearLayout heading = row();
+    TextView t = text("A mesma frequência.", 24, Ui.TEXT);
+    t.setTypeface(Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+    heading.addView(t, new LinearLayout.LayoutParams(0, -2, 1));
+    Ui.SpriteView little = new Ui.SpriteView(this);
+    heading.addView(little, new LinearLayout.LayoutParams(dp(76), dp(76)));
+    roomPage.addView(heading);
+    TextView desc =
+        text("Crie uma sala e mande o link. Quem entrar pode ouvir, assistir e conversar com você.",
+            13, muted);
+    desc.setLineSpacing(dp(3), 1);
+    roomPage.addView(desc);
+    gap(roomPage, 18);
+    LinearLayout roomCard = vertical();
+    roomCard.setPadding(dp(16), dp(14), dp(16), dp(14));
+    roomCard.setBackground(shape(panel, Ui.LINE));
+    status = text("Sala fechada", 13, lime);
+    roomCard.addView(status);
+    gap(roomCard, 8);
+    link = text("Seu link aparece aqui quando a sala ficar online.", 12, muted);
     link.setTextIsSelectable(true);
-    gap(room, 8);
-    room.addView(link);
-    gap(room, 12);
-    LinearLayout rr = row();
-    roomButton = button("Criar sala", true, () -> {
+    roomCard.addView(link);
+    gap(roomCard, 14);
+    LinearLayout actions = row();
+    weight(actions, button("Criar / encerrar", true, () -> {
       if (service != null) {
         if (service.room)
           service.closeRoom();
         else
           service.openRoom();
       }
-    });
-    weight(rr, roomButton);
-    weight(rr, button("Compartilhar", false, this::share));
-    room.addView(rr);
-    gap(room, 8);
-    room.addView(button("Copiar link", false, () -> {
-      if (service != null && !service.url.isEmpty()
-          && service.tunnelStatus.startsWith("Sala online")) {
-        ((android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE))
-            .setPrimaryClip(ClipData.newPlainText("RetroPlayer", service.url));
-        toast("Link copiado");
-      } else
-        toast("Aguarde a sala ficar online.");
     }));
-    gap(room, 10);
-    room.addView(text("Você controla a reprodução. A sincronia é\naproximada e depende da "
-                      + "conexão.\nEncerre a sala para invalidar o link.",
-        10, muted));
-    LinearLayout chat = card("04 / ROOM CHAT");
-    LinearLayout cr = row();
-    cr.addView(
-        text("Conversa na mesma vibe", 15, Color.WHITE), new LinearLayout.LayoutParams(0, -2, 1));
-    cr.addView(button("Nome", false, this::name));
-    chat.addView(cr);
-    gap(chat, 12);
-    ScrollView cs = new ScrollView(this);
+    weight(actions, button("Convidar", false, this::share));
+    roomCard.addView(actions);
+    gap(roomCard, 8);
+    LinearLayout more = row();
+    weight(more, button("Copiar link", false, this::copyLink));
+    weight(more, button("Entrar por link", false, this::join));
+    roomCard.addView(more);
+    roomPage.addView(roomCard);
+    gap(roomPage, 18);
+    LinearLayout chatTitle = row();
+    chatTitle.addView(Ui.label(this, "CONVERSA DA SALA"), new LinearLayout.LayoutParams(0, -2, 1));
+    chatTitle.addView(
+        button("Seu nome", false, this::name), new LinearLayout.LayoutParams(-2, dp(36)));
+    roomPage.addView(chatTitle);
+    gap(roomPage, 10);
+    ScrollView chatScroll = new ScrollView(this);
     chatRows = vertical();
-    cs.addView(chatRows);
-    chat.addView(cs, new LinearLayout.LayoutParams(-1, dp(220)));
-    gap(chat, 12);
+    chatScroll.addView(chatRows);
+    roomPage.addView(chatScroll, new LinearLayout.LayoutParams(-1, dp(240)));
+    gap(roomPage, 8);
     LinearLayout compose = row();
+    compose.setPadding(dp(12), dp(4), dp(4), dp(4));
+    compose.setBackground(Ui.shape(this, panel, 18));
     message = new EditText(this);
-    message.setTextColor(Color.WHITE);
+    message.setTextColor(Ui.TEXT);
     message.setHintTextColor(muted);
+    message.setHint("Enviar uma mensagem…");
     message.setTextSize(14);
-    message.setHint("Escreva uma mensagem…");
     message.setMaxLines(3);
+    message.setBackgroundColor(Color.TRANSPARENT);
     compose.addView(message, new LinearLayout.LayoutParams(0, -2, 1));
-    compose.addView(button("Enviar", true, () -> {
+    ImageView send = Ui.iconButton(this, "forward", lime, () -> {
       if (service == null || !service.room) {
         toast("Crie uma sala para conversar.");
         return;
       }
-      String m = message.getText().toString().trim();
-      if (!m.isEmpty()) {
-        service.chat(nickname, m);
+      String value = message.getText().toString().trim();
+      if (!value.isEmpty()) {
+        service.chat(nickname, value);
         message.setText("");
       }
-    }));
-    chat.addView(compose);
-    root.addView(text("RETRO SOUL / CONNECTED HEART\nFeito para ouvir junto.", 10, muted));
+    });
+    send.setContentDescription("Enviar mensagem");
+    compose.addView(send, new LinearLayout.LayoutParams(dp(44), dp(44)));
+    roomPage.addView(compose);
+    pageViews.add(scroller(roomPage));
   }
-  void pick() {
+  void buildWeb() {
+    webPage = padded();
+    section(webPage, "EXPLORAR");
+    Ui.SpriteView sprite = new Ui.SpriteView(this);
+    webPage.addView(sprite, new LinearLayout.LayoutParams(-1, dp(205)));
+    TextView t = text("O mundo também dá play.", 27, Ui.TEXT);
+    t.setTypeface(Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+    webPage.addView(t);
+    gap(webPage, 10);
+    TextView desc = text(
+        "Abra sites, descubra rádios e guarde seus favoritos. Tudo no RetroPlayer.", 15, muted);
+    desc.setLineSpacing(dp(5), 1);
+    webPage.addView(desc);
+    gap(webPage, 24);
+    webPage.addView(button("Abrir navegador", true, this::openBrowser));
+    gap(webPage, 12);
+    webPage.addView(button("Abrir um link de áudio ou vídeo", false, this::remote));
+    gap(webPage, 24);
+    webSummary = text("Seu áudio continua quando você minimiza o player.", 13, lime);
+    webSummary.setLineSpacing(dp(4), 1);
+    webPage.addView(webSummary);
+    pageViews.add(scroller(webPage));
+  }
+  void switchTab(int n) {
+    tab = n;
+    for (int i = 0; i < pageViews.size(); i++)
+      pageViews.get(i).setVisibility(i == n ? View.VISIBLE : View.GONE);
+    if (mini != null)
+      mini.setVisibility(n == 0 ? View.GONE : View.VISIBLE);
+    String[] icons = {"headphones", "library", "room", "web"};
+    for (int i = 0; i < navItems.size(); i++) {
+      LinearLayout item = navItems.get(i);
+      ((ImageView) item.getChildAt(0))
+          .setImageDrawable(new Ui.Glyph(icons[i], i == n ? lime : muted));
+      ((TextView) item.getChildAt(1)).setTextColor(i == n ? lime : muted);
+    }
+    if (n == 1)
+      filterQueue();
+  }
+  void updateModeIcons() {
+    if (service == null)
+      return;
+    shuffle.setImageDrawable(new Ui.Glyph("shuffle", service.shuffle ? lime : muted));
+    repeat.setImageDrawable(new Ui.Glyph("repeat", service.repeat ? lime : muted));
+  }
+  void addMenu() {
+    new AlertDialog.Builder(this)
+        .setTitle("Adicionar à reprodução")
+        .setItems(new String[] {"Selecionar um arquivo", "Selecionar vários arquivos",
+                      "Escolher uma pasta e subpastas", "Abrir link de mídia"},
+            (d, n) -> {
+              if (n == 0)
+                pick(false);
+              if (n == 1)
+                pick(true);
+              if (n == 2)
+                pickFolder();
+              if (n == 3)
+                remote();
+            })
+        .show();
+  }
+  void menu() {
+    new AlertDialog.Builder(this)
+        .setTitle("RetroPlayer")
+        .setItems(new String[] {"Adicionar mídia", "Equalizador", "Navegador e favoritos",
+                      "Limpar lista de reprodução", "Sobre o RetroPlayer"},
+            (d, n) -> {
+              if (n == 0)
+                addMenu();
+              if (n == 1)
+                equalizer();
+              if (n == 2)
+                openBrowser();
+              if (n == 3)
+                clearQueue();
+              if (n == 4)
+                new AlertDialog.Builder(this)
+                    .setTitle("RetroPlayer 1.1")
+                    .setMessage(
+                        "Música, vídeo e companhia.\n\nPlayer nativo para Android com pastas, "
+                        + "favoritos, áudio em segundo plano, salas por link e chat.\n\nA "
+                        + "reprodução de sites protegidos depende das regras de cada site.")
+                    .setPositiveButton("Pronto", null)
+                    .show();
+            })
+        .show();
+  }
+  void pick(boolean multiple) {
     Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
     i.setType("*/*");
     i.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {"audio/*", "video/*"});
-    i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+    i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, multiple);
     i.addCategory(Intent.CATEGORY_OPENABLE);
     i.addFlags(
         Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
     startActivityForResult(i, 7);
   }
-  protected void onActivityResult(int r, int c, Intent data) {
-    super.onActivityResult(r, c, data);
-    if (r == 7 && c == RESULT_OK && data != null) {
-      if (service == null)
-        service = PlayerService.instance;
-      if (service == null)
-        return;
+  void pickFolder() {
+    if (service != null && service.importing) {
+      toast("Uma pasta já está sendo importada.");
+      switchTab(1);
+      return;
+    }
+    Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+        | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+    startActivityForResult(i, 8);
+  }
+  @Override
+  protected void onActivityResult(int request, int result, Intent data) {
+    super.onActivityResult(request, result, data);
+    if (result != RESULT_OK || data == null)
+      return;
+    service = PlayerService.instance;
+    if (service == null) {
+      toast("O player está reiniciando. Tente novamente.");
+      return;
+    }
+    if (request == 8 && data.getData() != null) {
+      Uri tree = data.getData();
+      persist(tree);
+      service.importFolder(tree);
+      switchTab(1);
+    }
+    if (request == 7) {
       if (data.getClipData() != null) {
-        for (int i = 0; i < data.getClipData().getItemCount(); i++)
-          add(data.getClipData().getItemAt(i).getUri());
-      } else if (data.getData() != null)
-        add(data.getData());
+        for (int i = 0; i < data.getClipData().getItemCount(); i++) {
+          Uri uri = data.getClipData().getItemAt(i).getUri();
+          persist(uri);
+          service.add(uri);
+        }
+      } else if (data.getData() != null) {
+        persist(data.getData());
+        service.add(data.getData());
+      }
+      switchTab(1);
     }
   }
-  void add(Uri u) {
+  void persist(Uri uri) {
     try {
-      getContentResolver().takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-    } catch (Exception ignored) {
+      getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+    } catch (SecurityException e) {
+      toast("O acesso a este arquivo pode precisar ser autorizado novamente.");
     }
-    service.add(u);
+  }
+  void clearQueue() {
+    new AlertDialog.Builder(this)
+        .setTitle("Limpar lista?")
+        .setMessage("Os arquivos continuam no celular.")
+        .setNegativeButton("Cancelar", null)
+        .setPositiveButton("Limpar",
+            (d, w) -> {
+              if (service != null)
+                service.clearQueue();
+            })
+        .show();
+  }
+  void copyLink() {
+    if (service != null && !service.url.isEmpty()
+        && service.tunnelStatus.startsWith("Sala online")) {
+      ((android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE))
+          .setPrimaryClip(ClipData.newPlainText("RetroPlayer", service.url));
+      toast("Link copiado.");
+    } else
+      toast("Aguarde a sala ficar online.");
+  }
+  void openBrowser() {
+    startActivity(new Intent(this, BrowserActivity.class));
+  }
+  void remote() {
+    EditText input = new EditText(this);
+    input.setHint("https://site.com/musica.mp3");
+    input.setInputType(
+        android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+    new AlertDialog.Builder(this)
+        .setTitle("Abrir mídia da internet")
+        .setMessage("Cole um link HTTPS direto de áudio ou vídeo.")
+        .setView(input)
+        .setNegativeButton("Cancelar", null)
+        .setPositiveButton("Tocar",
+            (d, w) -> {
+              Uri u = Uri.parse(input.getText().toString().trim());
+              if (!"https".equals(u.getScheme()) || u.getHost() == null
+                  || u.getUserInfo() != null) {
+                toast("Use um link HTTPS direto válido.");
+                return;
+              }
+              if (service != null) {
+                service.addRemote(u.toString());
+                switchTab(0);
+              }
+            })
+        .show();
+  }
+  void filterQueue() {
+    visibleTracks.clear();
+    if (service != null)
+      for (int i = 0; i < service.tracks.size(); i++)
+        if (query.isEmpty() || service.tracks.get(i).name.toLowerCase(Locale.ROOT).contains(query))
+          visibleTracks.add(i);
+    if (adapter != null)
+      adapter.notifyDataSetChanged();
+  }
+  class QueueAdapter extends BaseAdapter {
+    public int getCount() {
+      return visibleTracks.size();
+    }
+    public Object getItem(int n) {
+      return service.tracks.get(visibleTracks.get(n));
+    }
+    public long getItemId(int n) {
+      return visibleTracks.get(n);
+    }
+    public View getView(int n, View convert, ViewGroup parent) {
+      LinearLayout item;
+      if (convert == null) {
+        item = row();
+        item.setPadding(dp(8), dp(9), dp(8), dp(9));
+        item.addView(Ui.icon(MainActivity.this, "music", muted, 22),
+            new LinearLayout.LayoutParams(dp(46), dp(48)));
+        LinearLayout labels = vertical();
+        TextView name = text("", 14, Ui.TEXT);
+        name.setMaxLines(1);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        labels.addView(name);
+        gap(labels, 4);
+        labels.addView(text("", 11, muted));
+        item.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
+        ImageView more = Ui.icon(MainActivity.this, "more", muted, 18);
+        item.addView(more, new LinearLayout.LayoutParams(dp(32), dp(40)));
+      } else
+        item = (LinearLayout) convert;
+      int at = visibleTracks.get(n);
+      PlayerService.Track track = service.tracks.get(at);
+      boolean current = at == service.index;
+      LinearLayout labels = (LinearLayout) item.getChildAt(1);
+      TextView name = (TextView) labels.getChildAt(0);
+      name.setText(track.name);
+      name.setTextColor(current ? lime : Ui.TEXT);
+      TextView info = (TextView) labels.getChildAt(2);
+      String origin = "https".equals(track.uri.getScheme()) ? "Internet"
+          : track.mime.startsWith("video/")                   ? "Vídeo"
+                                                              : "Áudio";
+      info.setText(origin + "  •  " + String.format(Locale.getDefault(), "%02d", at + 1));
+      item.setBackground(Ui.shape(MainActivity.this, current ? 0xff232f24 : bg, 12));
+      ((ImageView) item.getChildAt(0))
+          .setImageDrawable(new Ui.Glyph(current    ? "headphones"
+                  : track.mime.startsWith("video/") ? "play"
+                                                    : "music",
+              current ? lime : muted));
+      item.getChildAt(2).setOnClickListener(v
+          -> new AlertDialog.Builder(MainActivity.this)
+              .setTitle(track.name)
+              .setItems(new String[] {"Reproduzir", "Remover da lista"},
+                  (d, w) -> {
+                    if (w == 0) {
+                      service.select(at);
+                      switchTab(0);
+                    } else
+                      service.removeTrack(at);
+                  })
+              .show());
+      return item;
+    }
   }
   void share() {
     if (service == null || service.url.isEmpty()
@@ -357,7 +794,8 @@ public class MainActivity extends Activity {
     }
     Intent i = new Intent(Intent.ACTION_SEND);
     i.setType("text/plain");
-    i.putExtra(Intent.EXTRA_TEXT, "Ouça comigo no RetroPlayer! Música, vídeo e chat: " + service.url);
+    i.putExtra(
+        Intent.EXTRA_TEXT, "Ouça comigo no RetroPlayer! Música, vídeo e chat: " + service.url);
     startActivity(Intent.createChooser(i, "Convidar para a sala"));
   }
   void join() {
@@ -454,7 +892,7 @@ public class MainActivity extends Activity {
   String clock(int seconds) {
     return String.format(Locale.US, "%02d:%02d", seconds / 60, seconds % 60);
   }
-  Runnable refresh = new Runnable() {
+  final Runnable refresh = new Runnable() {
     public void run() {
       if (!active)
         return;
@@ -462,75 +900,105 @@ public class MainActivity extends Activity {
       if (service != null) {
         try {
           JSONObject s = new JSONObject(service.state);
-          title.setText(s.optString("title"));
+          boolean has = service.index >= 0;
+          String name = has ? service.tracks.get(service.index).name : "Dê play no seu mundo.";
+          title.setText(name);
+          artist.setText(has ? ("https".equals(service.tracks.get(service.index).uri.getScheme())
+                                       ? "Streaming da internet"
+                                       : "Sua biblioteca • " + (service.index + 1) + " de "
+                                           + service.tracks.size())
+                             : "Adicione uma música, um vídeo ou uma pasta");
+          boolean playing = s.optBoolean("playing");
           int pos = (int) (s.optDouble("position") * 1000),
-              dur = (int) (s.optDouble("duration") * 1000);
-          time.setText(clock(pos / 1000) + " / " + clock(dur / 1000));
+              duration = (int) (s.optDouble("duration") * 1000);
           if (!dragging) {
-            progress.setMax(dur);
+            elapsed.setText(clock(pos / 1000));
+            progress.setMax(duration);
             progress.setProgress(pos);
           }
-          boolean playing = s.optBoolean("playing");
-          play.setText(playing ? "Ⅱ PAUSA" : "▶ PLAY");
-          wave.playing = playing;
-          wave.invalidate();
-          boolean isVideo =
-              service.index >= 0 && service.tracks.get(service.index).mime.startsWith("video/");
+          progress.setEnabled(duration > 0 && service.ready);
+          total.setText(duration > 0 ? clock(duration / 1000) : has ? "AO VIVO" : "0:00");
+          play.setImageDrawable(new Ui.Glyph(playing ? "pause" : "play", bg));
+          boolean isVideo = has
+              && (service.tracks.get(service.index).mime.startsWith("video/")
+                  || (service.ready && service.player.getVideoHeight() > 0));
           video.setVisibility(isVideo ? View.VISIBLE : View.GONE);
           artwork.setVisibility(isVideo ? View.GONE : View.VISIBLE);
-          meta.setText(isVideo ? "VIDEO  •  LOCAL + TOGETHER" : "STEREO  •  LOCAL + TOGETHER");
-          status.setText((service.room ? "● " : "○ ") + service.tunnelStatus);
-          link.setText(
-              service.url.isEmpty() ? "O link aparece aqui ao abrir a sala." : service.url);
-          roomButton.setText(service.room ? "Encerrar sala" : "Criar sala");
-          if (lastQueue != service.tracks.size() || lastIndex != service.index) {
-            queue.removeAllViews();
-            lastQueue = service.tracks.size();
-            lastIndex = service.index;
-            queueTitle.setText("02 / PLAYLIST  •  " + lastQueue + " FAIXAS");
-            if (lastQueue == 0)
-              queue.addView(
-                  text("Sua coleção começa aqui.\nAdicione arquivos do seu celular.", 12, muted));
-            for (int i = 0; i < lastQueue; i++) {
-              final int n = i;
-              TextView t =
-                  text(String.format(Locale.US, "%02d  %s", i + 1, service.tracks.get(i).name), 13,
-                      i == lastIndex ? lime : Color.WHITE);
-              t.setPadding(dp(8), dp(12), dp(8), dp(12));
-              t.setMaxLines(2);
-              t.setBackground(shape(i == lastIndex ? Color.rgb(39, 50, 35) : panel, panel));
-              t.setOnClickListener(v -> service.select(n));
-              queue.addView(t);
+          meta.setText(isVideo ? "VÍDEO" : "ESTÉREO");
+          if (isVideo && service.ready) {
+            int vw = service.player.getVideoWidth(), vh = service.player.getVideoHeight();
+            if (vw > 0 && vh > 0) {
+              int aw = artFrame.getWidth(), ah = artFrame.getHeight();
+              float scale = Math.min((float) aw / vw, (float) ah / vh);
+              FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) video.getLayoutParams();
+              int w = (int) (vw * scale), h = (int) (vh * scale);
+              if (lp.width != w || lp.height != h) {
+                lp.width = w;
+                lp.height = h;
+                lp.gravity = Gravity.CENTER;
+                video.setLayoutParams(lp);
+              }
             }
           }
+          boolean webActive = service.browser != null && service.browser.active;
+          miniTitle.setText(webActive ? service.browser.pageTitle
+                  : has               ? name
+                                      : "Sua música está aqui");
+          miniSubtitle.setText(webActive ? "Navegador • segundo plano"
+                  : has                  ? "Toque para abrir o player"
+                                         : "Escolha um arquivo ou uma pasta");
+          miniPlay.setImageDrawable(new Ui.Glyph(
+              (webActive ? service.browser.playing : playing) ? "pause" : "play", lime));
+          status.setText((service.room ? "●  " : "○  ") + service.tunnelStatus);
+          link.setText(service.url.isEmpty() ? "Seu link aparece aqui quando a sala ficar online."
+                                             : service.url);
+          queueTitle.setText(service.tracks.size() + " arquivos na lista de reprodução");
+          importStatus.setText(service.importStatus);
+          if (lastVersion != service.tracksVersion || lastIndex != service.index) {
+            lastVersion = service.tracksVersion;
+            lastIndex = service.index;
+            filterQueue();
+          }
+          updateModeIcons();
           JSONArray chats = new JSONArray(service.chatJson());
           int id = chats.length() > 0 ? chats.getJSONObject(chats.length() - 1).getInt("id") : 0;
           if (id != lastChat) {
             lastChat = id;
             chatRows.removeAllViews();
-            if (chats.length() == 0)
-              chatRows.addView(
-                  text("O chat aparece aqui.\nCrie uma sala e convide alguém!", 12, muted));
-            for (int i = Math.max(0, chats.length() - 40); i < chats.length(); i++) {
+            if (chats.length() == 0) {
+              TextView hint =
+                  text("Sua conversa aparece aqui.\nCrie uma sala para começar.", 13, muted);
+              hint.setPadding(dp(6), dp(20), dp(6), 0);
+              chatRows.addView(hint);
+            }
+            for (int i = Math.max(0, chats.length() - 50); i < chats.length(); i++) {
               JSONObject j = chats.getJSONObject(i);
-              TextView t = text(j.getString("name") + "  •  "
+              LinearLayout bubble = vertical();
+              bubble.setPadding(dp(12), dp(10), dp(12), dp(10));
+              bubble.setBackground(Ui.shape(MainActivity.this,
+                  j.getString("name").equals(nickname) ? 0xff233126 : panel, 14));
+              TextView author = text(j.getString("name") + "  ·  "
                       + new java.text.SimpleDateFormat("HH:mm", Locale.getDefault())
-                          .format(new Date(j.getLong("time")))
-                      + "\n" + j.getString("text"),
-                  13, Color.WHITE);
-              t.setPadding(dp(8), dp(8), dp(8), dp(8));
-              chatRows.addView(t);
+                          .format(new Date(j.getLong("time"))),
+                  11, lime);
+              bubble.addView(author);
+              gap(bubble, 5);
+              bubble.addView(text(j.getString("text"), 14, Ui.TEXT));
+              LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
+              p.bottomMargin = dp(8);
+              chatRows.addView(bubble, p);
             }
             chatRows.post(() -> ((ScrollView) chatRows.getParent()).fullScroll(View.FOCUS_DOWN));
           }
           if (!service.error.isEmpty() && !service.error.equals(lastError)) {
             lastError = service.error;
             toast(lastError);
-          }
+          } else if (service.error.isEmpty())
+            lastError = "";
         } catch (Exception ignored) {
         }
       }
-      handler.postDelayed(this, 400);
+      handler.postDelayed(this, 450);
     }
   };
   @Override
@@ -539,13 +1007,13 @@ public class MainActivity extends Activity {
     active = true;
     handler.post(refresh);
     handler.postDelayed(() -> {
-      if (PlayerService.instance != null) {
-        service = PlayerService.instance;
+      service = PlayerService.instance;
+      if (service != null) {
         service.restore();
         if (video.getHolder().getSurface().isValid())
           service.attach(video.getHolder().getSurface());
       }
-    }, 500);
+    }, 300);
   }
   @Override
   protected void onPause() {
@@ -560,28 +1028,16 @@ public class MainActivity extends Activity {
     handler.removeCallbacksAndMessages(null);
     super.onDestroy();
   }
-  class Wave extends View {
-    Paint paint = new Paint(3);
-    boolean playing;
-    Wave() {
-      super(MainActivity.this);
-    }
-    protected void onDraw(Canvas c) {
-      int w = getWidth(), h = getHeight();
-      paint.setColor(Color.rgb(25, 44, 29));
-      for (int x = 0; x < w; x += dp(16)) c.drawLine(x, 0, x, h, paint);
-      for (int y = 0; y < h; y += dp(16)) c.drawLine(0, y, w, y, paint);
-      paint.setColor(Color.rgb(104, 155, 62));
-      for (int i = 0; i < 36; i++) {
-        float x = (i + .2f) * w / 36f;
-        float a = playing
-            ? (float) (.15
-                  + .75
-                      * Math.abs(Math.sin(i * 1.37 + System.currentTimeMillis() / 380.0)
-                          * Math.cos(i * .22 + System.currentTimeMillis() / 1700.0)))
-            : .08f;
-        c.drawRect(x, h - a * h * .8f, x + w / 52f, h, paint);
-      }
-    }
+  @Override
+  protected void onSaveInstanceState(Bundle out) {
+    out.putInt("tab", tab);
+    super.onSaveInstanceState(out);
+  }
+  @Override
+  public void onBackPressed() {
+    if (tab != 0)
+      switchTab(0);
+    else
+      super.onBackPressed();
   }
 }
