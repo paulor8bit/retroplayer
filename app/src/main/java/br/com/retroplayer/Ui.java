@@ -7,17 +7,25 @@ import android.view.*;
 import android.widget.*;
 
 final class Ui {
-  static final int BG = Color.rgb(12, 15, 21), PANEL = Color.rgb(23, 28, 37),
-                   RAISED = Color.rgb(33, 40, 50), LINE = Color.rgb(47, 55, 67),
-                   TEXT = Color.rgb(240, 243, 245), MUTED = Color.rgb(146, 158, 174),
-                   LIME = Color.rgb(201, 255, 102), ORANGE = Color.rgb(255, 159, 102);
+  static final int BG = 0xff201617, PANEL = 0xff3d2729, RAISED = 0xff492e30, LINE = 0xff6b494b,
+                   TEXT = 0xff98e3e6, MUTED = 0xffc6a19c, LIME = 0xff98e3e6, ORANGE = 0xffe75c50;
+  static Typeface monoFont, displayFont;
+  static Typeface mono(Context c) {
+    if (monoFont == null)
+      monoFont = Typeface.createFromAsset(c.getApplicationContext().getAssets(), "theme/mono.ttf");
+    return monoFont;
+  }
+  static Typeface display(Context c) {
+    if (displayFont == null)
+      displayFont =
+          Typeface.createFromAsset(c.getApplicationContext().getAssets(), "theme/display.ttf");
+    return displayFont;
+  }
   static int dp(Context c, float n) {
     return (int) (n * c.getResources().getDisplayMetrics().density + .5f);
   }
   static GradientDrawable shape(Context c, int color, int radius) {
-    GradientDrawable d = new GradientDrawable();
-    d.setColor(color);
-    d.setCornerRadius(dp(c, radius));
+    GradientDrawable d = new DeckDrawable(c, color, Math.min(10, Math.max(4, radius / 2)));
     return d;
   }
   static android.graphics.drawable.Drawable ripple(Context c, int color, int radius) {
@@ -30,13 +38,13 @@ final class Ui {
     t.setTextSize(size);
     t.setTextColor(color);
     t.setFontFeatureSettings("kern");
-    t.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
+    t.setTypeface(size >= 18 ? display(c) : mono(c));
     return t;
   }
   static TextView label(Context c, String s) {
     TextView t = text(c, s, 11, MUTED);
     t.setLetterSpacing(.13f);
-    t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+    t.setTypeface(mono(c));
     return t;
   }
   static LinearLayout column(Context c) {
@@ -54,12 +62,13 @@ final class Ui {
   }
   static Button button(Context c, String s, boolean primary, Runnable action) {
     Button b = new Button(c);
-    b.setAllCaps(false);
+    b.setAllCaps(true);
     b.setText(s);
-    b.setTextSize(13);
-    b.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+    b.setTextSize(17);
+    b.setTypeface(display(c));
+    b.setLetterSpacing(.06f);
     b.setTextColor(primary ? BG : TEXT);
-    b.setBackground(ripple(c, primary ? LIME : RAISED, 14));
+    b.setBackground(ripple(c, primary ? ORANGE : PANEL, 14));
     b.setMinHeight(dp(c, 48));
     b.setMinimumHeight(dp(c, 48));
     b.setPadding(dp(c, 14), 0, dp(c, 14), 0);
@@ -80,6 +89,145 @@ final class Ui {
     v.setOnClickListener(w -> action.run());
     v.setContentDescription(kind);
     return v;
+  }
+  static final class DeckDrawable extends GradientDrawable {
+    final Paint edge = new Paint(3);
+    final Path path = new Path();
+    final int cut;
+    int border;
+    DeckDrawable(Context c, int fill, int cut) {
+      this.cut = dp(c, cut);
+      setColor(fill);
+      border = fill == Color.TRANSPARENT || fill == BG ? Color.TRANSPARENT : LINE;
+    }
+    @Override
+    public void setStroke(int width, int color) {
+      border = color;
+      invalidateSelf();
+    }
+    void outlinePath() {
+      Rect r = getBounds();
+      float k = Math.min(cut, Math.min(r.width(), r.height()) / 3f);
+      path.reset();
+      path.moveTo(r.left + k, r.top + 1);
+      path.lineTo(r.right - 1, r.top + 1);
+      path.lineTo(r.right - 1, r.bottom - k);
+      path.lineTo(r.right - k, r.bottom - 1);
+      path.lineTo(r.left + 1, r.bottom - 1);
+      path.lineTo(r.left + 1, r.top + k);
+      path.close();
+    }
+    @Override
+    public void draw(Canvas c) {
+      outlinePath();
+      int save = c.save();
+      c.clipPath(path);
+      super.draw(c);
+      c.restoreToCount(save);
+      if (border != Color.TRANSPARENT) {
+        edge.setColor(border);
+        edge.setStrokeWidth(1.5f);
+        edge.setStyle(Paint.Style.STROKE);
+        c.drawPath(path, edge);
+      }
+    }
+    @Override
+    public void getOutline(Outline outline) {
+      if (getBounds().isEmpty()) {
+        outline.setEmpty();
+        return;
+      }
+      outlinePath();
+      outline.setConvexPath(path);
+    }
+  }
+  static final class BarcodeView extends View {
+    final Paint p = new Paint(3);
+    BarcodeView(Context c) {
+      super(c);
+      setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+    }
+    @Override
+    protected void onDraw(Canvas canvas) {
+      p.setColor(LIME);
+      float unit = getWidth() / 53f;
+      int x = 0;
+      for (int i = 0; i < 22; i++) {
+        int bar = (i * 7 + 3) % 4 + 1;
+        canvas.drawRect(x * unit, 0, (x + bar) * unit, getHeight(), p);
+        x += bar + 1;
+      }
+    }
+  }
+  static final class StatusStrip extends View {
+    final Paint p = new Paint(3);
+    StatusStrip(Context c) {
+      super(c);
+      p.setTypeface(mono(c));
+      setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+    }
+    @Override
+    protected void onDraw(Canvas canvas) {
+      p.setTextSize(dp(getContext(), 10));
+      p.setColor(LIME);
+      int battery =
+          ((android.os.BatteryManager) getContext().getSystemService(Context.BATTERY_SERVICE))
+              .getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY);
+      String right = new java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                         .format(new java.util.Date())
+          + (battery >= 0 && battery <= 100 ? "  BAT " + battery + "%" : "");
+      canvas.drawText("RP//DECK", 0, getHeight() * .65f, p);
+      float width = p.measureText(right);
+      canvas.drawText(right, getWidth() - width, getHeight() * .65f, p);
+      p.setColor(MUTED);
+      float end = getWidth() - width - dp(getContext(), 14);
+      for (float x = dp(getContext(), 85); x < end; x += dp(getContext(), 10))
+        canvas.drawLine(x, getHeight() * .35f, x, getHeight() * .58f, p);
+      if (isShown())
+        postInvalidateDelayed(30000);
+    }
+  }
+  static final class ProgressTrace extends View {
+    final Paint p = new Paint(3);
+    final Path wave = new Path();
+    float fraction;
+    ProgressTrace(Context c) {
+      super(c);
+      setContentDescription("Progresso da reprodução");
+    }
+    void update(float f) {
+      fraction = Math.max(0, Math.min(1, f));
+      invalidate();
+    }
+    @Override
+    protected void onDraw(Canvas c) {
+      float w = getWidth(), h = getHeight(), mid = h * .5f;
+      wave.reset();
+      wave.moveTo(0, mid);
+      for (int x = 0; x <= getWidth(); x += 3) {
+        float u = (x % 76) / 76f;
+        float v = u > .37f && u < .44f ? -h * .26f
+            : u > .44f && u < .49f     ? h * .32f
+            : u > .49f && u < .56f     ? -h * .14f
+                                       : 0;
+        wave.lineTo(x, mid + v);
+      }
+      p.setStyle(Paint.Style.STROKE);
+      p.setStrokeWidth(dp(getContext(), 1));
+      p.setColor(LINE);
+      c.drawPath(wave, p);
+      int save = c.save();
+      c.clipRect(0, 0, w * fraction, h);
+      p.setColor(ORANGE);
+      p.setStrokeWidth(dp(getContext(), 2));
+      c.drawPath(wave, p);
+      c.restoreToCount(save);
+      p.setColor(LIME);
+      c.drawLine(w * fraction, 4, w * fraction, h - 4, p);
+      p.setStyle(Paint.Style.FILL);
+      c.drawRect(w * fraction - dp(getContext(), 2), mid - dp(getContext(), 5),
+          w * fraction + dp(getContext(), 2), mid + dp(getContext(), 5), p);
+    }
   }
   static final class Glyph extends Drawable {
     final String type;

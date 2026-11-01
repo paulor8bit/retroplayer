@@ -1,7 +1,7 @@
 package br.com.retroplayer;
+import java.io.*;
 import java.net.*;
 import java.net.http.*;
-import java.io.*;
 import java.nio.file.*;
 import java.util.*;
 public class ServerIntegration {
@@ -31,6 +31,22 @@ public class ServerIntegration {
       check(get(base, "wrong/state", null).statusCode() == 404, "secret token required");
       check(get(base, room + "state", null).statusCode() == 200, "state accessible");
       check(new String(get(base, room, null).body()).contains("ROOM CHAT"), "guest page served");
+      HttpResponse<byte[]> font = get(base, room + "theme/mono.ttf", null);
+      check(font.statusCode() == 200
+              && font.headers().firstValue("Content-Type").orElse("").equals("font/ttf")
+              && font.body().length > 10000,
+          "room serves local font with correct MIME");
+      check(font.headers()
+                .firstValue("Content-Security-Policy")
+                .orElse("")
+                .contains("font-src 'self'"),
+          "CSP permits the packaged fonts without external services");
+      check(get(base, room + "theme/cover.png", null).statusCode() == 200,
+          "shared artwork served in room");
+      check(get(base, room + "theme/../../ca.pem", null).statusCode() == 404,
+          "theme files use a fixed allowlist");
+      check(get(base, "wrong/theme/mono.ttf", null).statusCode() == 404,
+          "theme assets still require room token");
       HttpResponse<byte[]> full = get(base, room + "media/1", null);
       check(Arrays.equals(full.body(), data), "full media bytes");
       HttpResponse<byte[]> part = get(base, room + "media/1", "bytes=10-39");
@@ -77,6 +93,8 @@ public class ServerIntegration {
           "remote media redirect");
       s.room = false;
       check(get(base, room + "state", null).statusCode() == 404, "closed room revoked");
+      check(get(base, room + "theme/display.ttf", null).statusCode() == 404,
+          "closed room also revokes theme requests");
       System.out.println("PASS: " + checks + " HTTP, media, chat and access checks");
     } finally {
       server.close();

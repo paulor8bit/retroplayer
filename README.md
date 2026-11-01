@@ -4,7 +4,13 @@ Player Android de música e vídeo com visual retrô inspirado no Winamp, navega
 
 ## Instalar
 
-Baixe **[apk/RetroPlayer.apk](apk/RetroPlayer.apk)** ou o APK na seção **Releases**. Compatível com **Android 8 ou superior, ARM64**. A versão 1.1 usa assinatura de desenvolvimento e o mesmo identificador/assinante da 1.0, permitindo atualizar sem desinstalar.
+Baixe **[apk/RetroPlayer.apk](apk/RetroPlayer.apk)** ou o APK na seção **Releases**. Compatível com **Android 8 ou superior, ARM64**. A versão 1.2 usa assinatura de desenvolvimento e o mesmo identificador/assinante das versões anteriores, permitindo atualizar sem desinstalar.
+
+## Tema Cyberdeck 1.2
+
+O app e a página do convidado seguem a referência `modelo.jpg`: fundo escuro avermelhado, ciano claro, detalhes em coral, fontes de terminal e painéis com cantos recortados. A composição do player mostra a capa junto à identificação do arquivo, progresso e últimos arquivos adicionados. A sala do convidado usa o mesmo desenho, com painéis reorganizados para celular ou computador.
+
+As fontes e a capa são fornecidas pelo próprio app, sem CDN. Instale a versão 1.2 e crie uma nova sala para ver o tema no link. Veja [artwork/DESIGN-v1.2.md](artwork/DESIGN-v1.2.md) para a paleta e os detalhes da adaptação.
 
 ## Usar
 
@@ -71,6 +77,8 @@ O executável do túnel foi executado neste ambiente Android e conectou ao TryCl
 ## Arte
 
 Os arquivos `deck_cover.png` e `cassette_sprites.png` ficam em `app/src/main/res/drawable-nodpi/`. O sprite usa quatro quadros em grade 2 × 2, desenhados no Canvas nativo. Os prompts completos e o método de geração estão em [artwork/PROMPTS.md](artwork/PROMPTS.md).
+
+As fontes Share Tech Mono e Rajdhani estão sob SIL OFL, com as licenças incluídas no projeto e no APK.
 
 ## Terceiros
 

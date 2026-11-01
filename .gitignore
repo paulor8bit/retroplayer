@@ -14,3 +14,6 @@ tests/guest-script.js
 
 tools/main-dialogs.tmp
 tools/adb-runtime/
+
+tools/guest-sync-v1.2.tmp
+artwork/reference/

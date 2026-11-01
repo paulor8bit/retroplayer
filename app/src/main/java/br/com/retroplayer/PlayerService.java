@@ -90,6 +90,37 @@ public class PlayerService extends Service {
       size = z;
     }
   }
+  private volatile byte[] themeCover;
+  private final Object themeLock = new Object();
+  InputStream openThemeAsset(String name) throws IOException {
+    if (name.equals("cover.png")) {
+      if (themeCover == null)
+        synchronized (themeLock) {
+          if (themeCover == null) {
+            android.graphics.BitmapFactory.Options options =
+                new android.graphics.BitmapFactory.Options();
+            options.inSampleSize = 2;
+            options.inScaled = false;
+            android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeResource(
+                getResources(), R.drawable.deck_cover, options);
+            if (bitmap == null)
+              throw new IOException("Capa indisponível");
+            try {
+              ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+              if (!bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, encoded))
+                throw new IOException("Capa indisponível");
+              themeCover = encoded.toByteArray();
+            } finally {
+              bitmap.recycle();
+            }
+          }
+        }
+      return new ByteArrayInputStream(themeCover);
+    }
+    if (name.equals("mono.ttf") || name.equals("display.ttf"))
+      return getAssets().open("theme/" + name);
+    throw new FileNotFoundException(name);
+  }
   @Override
   public void onCreate() {
     super.onCreate();

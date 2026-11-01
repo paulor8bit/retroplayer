@@ -124,6 +124,18 @@ public class RoomServer {
         reply(out, 200, "application/json", "{\"ok\":true}");
         return;
       }
+      if (endpoint.equals("theme/mono.ttf") || endpoint.equals("theme/display.ttf")
+          || endpoint.equals("theme/cover.png")) {
+        String name = endpoint.substring(6);
+        try (InputStream asset = s.openThemeAsset(name)) {
+          byte[] bytes = Io.all(asset);
+          head(out, 200, name.endsWith(".ttf") ? "font/ttf" : "image/png", bytes.length, "");
+          if (!req[0].equals("HEAD"))
+            out.write(bytes);
+          out.flush();
+        }
+        return;
+      }
       if (endpoint.equals("state")) {
         reply(out, 200, "application/json", s.state);
         return;
@@ -227,7 +239,8 @@ public class RoomServer {
         + ("Connection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: "
             + "nosniff\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src "
             + "'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src 'self' "
-            + "https:; connect-src 'self'; frame-ancestors 'none'\r\n")
+            + "https:; font-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors "
+              + "'none'\r\n")
         + extra + "\r\n";
     out.write(h.getBytes(StandardCharsets.UTF_8));
   }

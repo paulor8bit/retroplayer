@@ -1,13 +1,12 @@
-RetroPlayer 1.1 — interface nativa e biblioteca por pastas.
+RetroPlayer 1.2 — app e sala inspirados na referência modelo.jpg.
 
-- Abas Player, Biblioteca, Sala e Web, navegação inferior e miniplayer.
-- Capa original, mascote animado de quatro quadros, ícones vetoriais e novo ícone do app.
-- Seleção de um arquivo, vários arquivos ou uma pasta com subpastas.
-- Importação em segundo plano, progresso, cancelamento, busca, remoção e prevenção de duplicatas na fila.
-- Sites favoritos persistentes, estrela para salvar e lista para abrir ou remover.
-- Navegador mantido pelo serviço e transferência de mídia HTTPS direta ao player ao minimizar.
-- Reprodução nativa com a tela apagada, controles na notificação e pausa ao desconectar fones.
+- Fundo escuro avermelhado, texto e molduras em ciano, botões e detalhes em coral.
+- Tipografia Share Tech Mono e Rajdhani, molduras angulares, códigos de barras decorativos e composição Cyberdeck.
+- Player nativo com capa compacta, identificação do arquivo, progresso e últimos arquivos adicionados.
+- Tema aplicado também à biblioteca, sala, navegação e navegador.
+- Página do convidado com o mesmo visual, layout adaptado para celular e computador, player e chat.
+- Fontes e capa servidas pelo próprio app, sob o token da sala.
 
-Compatível com Android 8+ / ARM64. Mesmo identificador e assinatura de desenvolvimento da versão 1.0. Sites protegidos ou com fontes blob/MSE/iframes podem limitar o áudio em segundo plano. A sincronia da sala continua aproximada e depende da conexão.
+Android 8+ / ARM64. Mesmo identificador e certificado da versão anterior; versão interna 3. Instale o APK e abra uma nova sala para ver o tema no link.
 
-Compilação, Lint e testes JVM/JavaScript foram executados. A interface e a reprodução com tela apagada ainda precisam ser verificadas em APK instalado: não há aparelho autorizado conectado ao ADB deste ambiente.
+Compilação, Android Lint e testes de servidor/sincronização executados. Não há dispositivo Android autorizado conectado ao ADB para validar o layout em APK instalado ou reproduzir entre dois aparelhos.

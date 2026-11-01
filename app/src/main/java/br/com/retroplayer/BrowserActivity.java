@@ -47,8 +47,7 @@ public class BrowserActivity extends Activity {
     close.setContentDescription("Voltar ao RetroPlayer");
     header.addView(close, new LinearLayout.LayoutParams(dp(44), dp(44)));
     TextView title = Ui.text(this, "Explorar", 21, Ui.TEXT);
-    title.setTypeface(
-        android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+    title.setTypeface(Ui.display(this));
     header.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
     ImageView bookmarks = Ui.iconButton(this, "library", Ui.LIME, this::favorites);
     bookmarks.setContentDescription("Sites favoritos");
@@ -64,6 +63,7 @@ public class BrowserActivity extends Activity {
     address = new EditText(this);
     address.setTextColor(Ui.TEXT);
     address.setTextSize(14);
+    address.setTypeface(Ui.mono(this));
     address.setHintTextColor(Ui.MUTED);
     address.setHint("Pesquisar ou digitar endereço");
     address.setSingleLine();
@@ -146,8 +146,7 @@ void renderHome() {
   content.addView(sprite, new LinearLayout.LayoutParams(-1, dp(170)));
   TextView title = Ui.text(this, "A internet no seu ritmo.", 26, Ui.TEXT);
   title.setGravity(Gravity.CENTER);
-  title.setTypeface(
-      android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+  title.setTypeface(Ui.display(this));
   content.addView(title);
   Ui.gap(this, content, 10);
   TextView intro = Ui.text(this,

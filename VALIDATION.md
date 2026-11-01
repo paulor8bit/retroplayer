@@ -1,20 +1,21 @@
-# Validação da entrega — RetroPlayer 1.1
+# Validação — RetroPlayer 1.2 / Cyberdeck
 
-- `assembleDebug`: passou.
-- Android Lint `lintDebug`: passou, **0 erros e 8 avisos**. Os avisos remanescentes abrangem internacionalização, ABI ARM64, configuração de backup e wakelock do serviço de sala.
-- Integração HTTP: **14 verificações passaram**, cobrindo acesso por token, página da sala, mídia completa, intervalos de bytes, faixa antiga, chat, origem das mensagens, link remoto e encerramento da sala.
-- Biblioteca/favoritos: **14 verificações passaram**, cobrindo subpastas, arquivos repetidos, ciclos de diretórios, pastas sem acesso, cancelamento, filtro de mídia, favoritos persistidos, atualização sem duplicatas, esquemas inválidos e JSON corrompido.
-- JavaScript do convidado: passou para ativação pelo usuário, pausa, seek, correção de deriva, troca de faixa e encerramento.
-- APK: assinatura v2 verificada com `apksigner`; mesmo certificado da versão 1.0. `applicationId` continua `br.com.retroplayer`, agora com `versionCode=2` e `versionName=1.1`.
-- Pacote conferido: capa PNG, sprite PNG com transparência, classes de importação/favoritos/navegador persistente e executável Cloudflared ARM64 presentes.
-- Cópia em `/sdcard/Download/RetroPlayer.apk` idêntica à versão de `apk/RetroPlayer.apk` por SHA256.
+- Compilação `assembleDebug`: passou.
+- Android Lint `lintDebug`: passou, **0 errors, 11 warnings**. Avisos incluem internacionalização, ABI ARM64, backup, wakelock e alocações do pequeno relógio decorativo.
+- **20 verificações HTTP passaram**: token, página, mídia completa, ranges, faixa antiga, chat, origem das mensagens, link remoto, sala encerrada, fontes/capa, MIME das fontes, CSP, lista fixa de recursos e revogação do tema ao encerrar a sala.
+- **14 verificações de biblioteca/favoritos passaram**: subpastas, ciclos, duplicatas, cancelamento, pastas sem acesso, filtros e persistência/validação dos favoritos.
+- JavaScript do convidado: passou nos cenários de ativação por toque, pausa, seek, correção de deriva, troca de faixa e encerramento.
+- HTML conferido: IDs únicos, controles existentes de mídia/chat presentes e capa com texto alternativo. O CSS inclui regras para telas pequenas e grandes.
+- APK: assinatura v2 verificada; mesmo certificado da versão anterior. Identificador `br.com.retroplayer`, versão interna 3, versão 1.2.
+- APK conferido: fontes locais e licenças, página Cyberdeck, classes do tema angular e navegador persistente presentes; executável Cloudflared idêntico ao binário preparado.
+- Cópia em `/sdcard/Download/RetroPlayer.apk` idêntica ao arquivo `apk/RetroPlayer.apk` por SHA256.
 
-## Limites da validação
+## Limites
 
-O ADB foi executado usando uma cópia isolada da biblioteca C++ atual, sem alterar a instalação do Termux. **Não existe aparelho autorizado conectado ao ADB**. Portanto não foram validados em APK instalado: aparência/layout, seleção via DocumentsProvider real, codecs, favoritos na UI, navegação em sites, reprodução com tela apagada ou sincronia medida entre dois aparelhos.
+A referência `/sdcard/Download/modelo.jpg` foi inspecionada e usada para orientar cores, fontes, molduras, botões, composição e marcadores. O arquivo de referência não está incluído no APK nem no repositório. Os detalhes estão em [artwork/DESIGN-v1.2.md](artwork/DESIGN-v1.2.md).
 
-O suporte a segundo plano foi implementado com serviço de reprodução, MediaSession, wakelock do MediaPlayer, sessão WebView mantida pelo serviço e transferência de mídia HTTPS direta com posição/cabeçalhos temporários. A permanência do som em sites protegidos ou com blob/MSE/iframes depende do site e do WebView e não é garantida. O teste de conectividade do executável Cloudflared registrado na versão 1.0 não foi repetido; o binário continua idêntico e foi conferido no novo pacote.
+Não há dispositivo Android autorizado conectado ao ADB nem navegador headless instalado neste ambiente. O layout não foi verificado por captura de tela de APK ou navegador em execução. Os testes cobrem o servidor real com adaptadores de arquivos no JVM e o comportamento JavaScript, sem substituir testes de codecs, áudio com tela apagada ou sincronização entre dois aparelhos.
 
-As imagens foram criadas com a ferramenta integrada image_gen, incorporadas ao projeto e inspecionadas. A capa mede 1254 × 1254 em RGB e o sprite 1254 × 1254 em RGBA, grade 2 × 2. Os prompts estão em [artwork/PROMPTS.md](artwork/PROMPTS.md).
+O serviço de reprodução, a importação de pastas e os favoritos foram mantidos. Sites protegidos ainda podem limitar áudio em segundo plano. O binário do túnel continua o mesmo validado na versão 1.0; o teste de conectividade não foi repetido nesta alteração visual.
 
-SHA256 do APK: `43cbf06b554bad1b535bbcd9f1b9904cb7f9b26ab69392c562cd2d734d013554`.
+SHA256 do APK: `3faa9a06fedc019113a496ffb0a2c795840514a7c6aa488f0dab2132fb37fbbc`.

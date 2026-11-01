@@ -28,6 +28,9 @@ public class MainActivity extends Activity {
   SurfaceView video;
   SeekBar progress;
   Ui.SpriteView mascot;
+  Ui.ProgressTrace trace;
+  TextView playbackState;
+  LinearLayout recentRows;
   EditText message, search;
   ListView queue;
   QueueAdapter adapter;
@@ -57,7 +60,7 @@ public class MainActivity extends Activity {
     return Ui.button(this, s, primary, r);
   }
   GradientDrawable shape(int color, int stroke) {
-    GradientDrawable d = Ui.shape(this, color, 16);
+    GradientDrawable d = Ui.shape(this, color, 8);
     d.setStroke(dp(1), stroke);
     return d;
   }
@@ -107,21 +110,29 @@ public class MainActivity extends Activity {
     shell = vertical();
     shell.setBackgroundColor(bg);
     setContentView(shell);
+    Ui.StatusStrip strip = new Ui.StatusStrip(this);
+    LinearLayout.LayoutParams stripParams = new LinearLayout.LayoutParams(-1, dp(28));
+    stripParams.setMargins(dp(18), 0, dp(18), 0);
+    shell.addView(strip, stripParams);
     LinearLayout header = row();
+    header.setBackground(shape(bg, lime));
     header.setPadding(dp(16), dp(8), dp(12), dp(8));
     ImageView mark = Ui.icon(this, "headphones", lime, 25);
     header.addView(mark, new LinearLayout.LayoutParams(dp(38), dp(48)));
     LinearLayout heading = vertical();
-    TextView brand = text("RetroPlayer", 23, Ui.TEXT);
-    brand.setTypeface(Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+    TextView brand = text("RETROPLAYER", 24, Ui.TEXT);
+    brand.setTypeface(Ui.display(this));
+    brand.setSingleLine(true);
     heading.addView(brand);
-    headerSubtitle = Ui.label(this, "SEU SOM, EM QUALQUER LUGAR");
+    headerSubtitle = Ui.label(this, "CYBRDECK // OPERADOR LOCAL");
     headerSubtitle.setTextSize(9);
     heading.addView(headerSubtitle);
     header.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
     icon(header, "plus", Ui.TEXT, this::addMenu, 44);
     icon(header, "more", Ui.TEXT, this::menu, 40);
-    shell.addView(header);
+    LinearLayout.LayoutParams headerParams = new LinearLayout.LayoutParams(-1, dp(72));
+    headerParams.setMargins(dp(14), dp(4), dp(14), dp(12));
+    shell.addView(header, headerParams);
     pages = new FrameLayout(this);
     shell.addView(pages, new LinearLayout.LayoutParams(-1, 0, 1));
     buildPlayer();
@@ -131,7 +142,7 @@ public class MainActivity extends Activity {
     for (View view : pageViews) pages.addView(view, new FrameLayout.LayoutParams(-1, -1));
     mini = row();
     mini.setPadding(dp(12), dp(6), dp(10), dp(6));
-    mini.setBackground(Ui.shape(this, Ui.RAISED, 16));
+    mini.setBackground(shape(Ui.PANEL, Ui.LINE));
     LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(-1, dp(68));
     mp.setMargins(dp(12), dp(4), dp(12), dp(6));
     shell.addView(mini, mp);
@@ -163,8 +174,8 @@ public class MainActivity extends Activity {
     mini.setOnClickListener(v -> switchTab(0));
     LinearLayout nav = row();
     nav.setPadding(dp(8), dp(2), dp(8), dp(4));
-    nav.setBackgroundColor(panel);
-    String[] names = {"Player", "Biblioteca", "Sala", "Web"},
+    nav.setBackgroundColor(bg);
+    String[] names = {"PLAYER", "ARQUIVOS", "SALA", "WEB"},
              icons = {"headphones", "library", "room", "web"};
     for (int i = 0; i < 4; i++) {
       final int n = i;
@@ -185,21 +196,46 @@ public class MainActivity extends Activity {
   }
   void buildPlayer() {
     root = padded();
-    LinearLayout top = row();
-    TextView now = Ui.label(this, "TOCANDO AGORA");
-    top.addView(now, new LinearLayout.LayoutParams(0, -2, 1));
+    LinearLayout channel = row();
+    TextView label = Ui.label(this, "ACTIVE_MEDIA // PLAYER");
+    channel.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
     meta = Ui.label(this, "ESTÉREO");
     meta.setTextColor(lime);
-    top.addView(meta);
-    root.addView(top);
-    gap(root, 18);
-    artFrame = new FrameLayout(this);
-    artFrame.setBackground(Ui.shape(this, panel, 24));
-    artFrame.setClipToOutline(true);
+    channel.addView(meta);
+    root.addView(channel);
+    gap(root, 14);
+    LinearLayout activeMedia = row();
+    activeMedia.setGravity(Gravity.TOP);
+    activeMedia.setPadding(dp(12), dp(14), dp(12), dp(14));
+    activeMedia.setBackground(shape(bg, lime));
     artwork = new ImageView(this);
     artwork.setImageResource(R.drawable.deck_cover);
     artwork.setScaleType(ImageView.ScaleType.CENTER_CROP);
-    artFrame.addView(artwork, new FrameLayout.LayoutParams(-1, -1));
+    artwork.setBackground(shape(panel, lime));
+    artwork.setClipToOutline(true);
+    activeMedia.addView(artwork, new LinearLayout.LayoutParams(dp(94), dp(132)));
+    LinearLayout trackInfo = vertical();
+    trackInfo.setPadding(dp(14), 0, 0, 0);
+    trackInfo.addView(Ui.label(this, "ARQUIVO ATIVO"));
+    gap(trackInfo, 5);
+    title = text("PRONTO PARA O PLAY", 27, Ui.TEXT);
+    title.setTypeface(Ui.display(this));
+    title.setAllCaps(true);
+    title.setMaxLines(3);
+    title.setEllipsize(TextUtils.TruncateAt.END);
+    trackInfo.addView(title);
+    gap(trackInfo, 7);
+    artist = text("Selecione um arquivo ou uma pasta", 12, muted);
+    trackInfo.addView(artist);
+    gap(trackInfo, 12);
+    Ui.BarcodeView barcode = new Ui.BarcodeView(this);
+    trackInfo.addView(barcode, new LinearLayout.LayoutParams(dp(86), dp(16)));
+    activeMedia.addView(trackInfo, new LinearLayout.LayoutParams(0, -2, 1));
+    root.addView(activeMedia);
+    gap(root, 14);
+    artFrame = new FrameLayout(this);
+    artFrame.setBackground(shape(bg, Ui.LINE));
+    artFrame.setClipToOutline(true);
     video = new SurfaceView(this);
     video.setVisibility(View.GONE);
     artFrame.addView(video, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
@@ -217,20 +253,14 @@ public class MainActivity extends Activity {
           service.attach(null);
       }
     });
-    int screenWidth = getResources().getDisplayMetrics().widthPixels;
-    int side = Math.min(screenWidth - dp(40), dp(320));
-    LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-1, side);
-    root.addView(artFrame, ap);
-    gap(root, 19);
-    title = text("Dê play no seu mundo.", 23, Ui.TEXT);
-    title.setTypeface(Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
-    title.setMaxLines(2);
-    title.setEllipsize(TextUtils.TruncateAt.END);
-    root.addView(title);
-    gap(root, 5);
-    artist = text("Adicione uma música, um vídeo ou uma pasta", 13, muted);
-    root.addView(artist);
-    gap(root, 16);
+    artFrame.setVisibility(View.GONE);
+    root.addView(artFrame, new LinearLayout.LayoutParams(-1, dp(200)));
+    trace = new Ui.ProgressTrace(this);
+    root.addView(trace, new LinearLayout.LayoutParams(-1, dp(54)));
+    playbackState = Ui.label(this, "AGUARDANDO // 0% REPRODUZIDO");
+    playbackState.setTextColor(lime);
+    root.addView(playbackState);
+    gap(root, 10);
     progress = new SeekBar(this);
     progress.setPadding(dp(2), 0, dp(2), 0);
     progress.setProgressTintList(android.content.res.ColorStateList.valueOf(lime));
@@ -277,7 +307,7 @@ public class MainActivity extends Activity {
         service.toggle();
     });
     play.setContentDescription("Reproduzir ou pausar");
-    play.setBackground(Ui.ripple(this, lime, 36));
+    play.setBackground(Ui.ripple(this, Ui.ORANGE, 8));
     play.setPadding(dp(20), dp(20), dp(20), dp(20));
     LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(dp(70), dp(70));
     pp.setMargins(dp(6), 0, dp(6), 0);
@@ -320,14 +350,73 @@ public class MainActivity extends Activity {
     });
     extras.addView(vol, new LinearLayout.LayoutParams(0, dp(38), 1));
     root.addView(extras);
+    gap(root, 12);
+    LinearLayout memo = row();
+    memo.setPadding(dp(14), dp(12), dp(14), dp(12));
+    memo.setBackground(shape(bg, lime));
+    ImageView memoIcon = Ui.icon(this, "headphones", Ui.ORANGE, 24);
+    memo.addView(memoIcon, new LinearLayout.LayoutParams(dp(40), dp(44)));
+    LinearLayout memoLabels = vertical();
+    memoLabels.addView(Ui.label(this, "CANAL DE ÁUDIO // LOCAL"));
+    gap(memoLabels, 5);
+    memoLabels.addView(text("Seu som continua em segundo plano.", 12, lime));
+    memo.addView(memoLabels, new LinearLayout.LayoutParams(0, -2, 1));
+    root.addView(memo);
+    gap(root, 20);
+    section(root, "ÚLTIMOS_ARQUIVOS");
+    recentRows = vertical();
+    root.addView(recentRows);
+    gap(root, 14);
+    LinearLayout footer = row();
+    Ui.BarcodeView code = new Ui.BarcodeView(this);
+    footer.addView(code, new LinearLayout.LayoutParams(dp(60), dp(19)));
+    TextView signature = Ui.label(this, "  RETROPLAYER // CYBR 1.2");
+    footer.addView(signature);
+    root.addView(footer);
     playerPage = scroller(root);
     pageViews.add(playerPage);
+  }
+  void updateRecent() {
+    if (recentRows == null)
+      return;
+    recentRows.removeAllViews();
+    if (service == null || service.tracks.isEmpty()) {
+      recentRows.addView(text("Nenhum arquivo na fila.\nUse + para abrir sua coleção.", 13, muted));
+      return;
+    }
+    for (int i = service.tracks.size() - 1; i >= Math.max(0, service.tracks.size() - 3); i--) {
+      final int at = i;
+      PlayerService.Track track = service.tracks.get(i);
+      LinearLayout item = row();
+      item.setPadding(dp(6), dp(8), dp(6), dp(8));
+      ImageView cover = new ImageView(this);
+      cover.setImageResource(R.drawable.deck_cover);
+      cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+      item.addView(cover, new LinearLayout.LayoutParams(dp(40), dp(50)));
+      LinearLayout labels = vertical();
+      labels.setPadding(dp(12), 0, 0, 0);
+      TextView name = text(track.name, 17, lime);
+      name.setTypeface(Ui.display(this));
+      name.setMaxLines(1);
+      name.setEllipsize(TextUtils.TruncateAt.END);
+      labels.addView(name);
+      labels.addView(Ui.label(this,
+          ("https".equals(track.uri.getScheme()) ? "INTERNET" : "ARQUIVO LOCAL") + " // "
+              + (i + 1)));
+      item.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
+      item.setBackground(Ui.ripple(this, bg, 6));
+      item.setOnClickListener(v -> service.select(at));
+      recentRows.addView(item);
+      View line = new View(this);
+      line.setBackgroundColor(Ui.LINE);
+      recentRows.addView(line, new LinearLayout.LayoutParams(-1, dp(1)));
+    }
   }
   void buildLibrary() {
     LinearLayout l = padded();
     LinearLayout heading = row();
     TextView t = text("Sua biblioteca", 25, Ui.TEXT);
-    t.setTypeface(Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+    t.setTypeface(Ui.display(this));
     heading.addView(t, new LinearLayout.LayoutParams(0, -2, 1));
     icon(heading, "more", muted,
         ()
@@ -443,7 +532,7 @@ public class MainActivity extends Activity {
     section(roomPage, "OUVIR JUNTO");
     LinearLayout heading = row();
     TextView t = text("A mesma frequência.", 24, Ui.TEXT);
-    t.setTypeface(Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+    t.setTypeface(Ui.display(this));
     heading.addView(t, new LinearLayout.LayoutParams(0, -2, 1));
     Ui.SpriteView little = new Ui.SpriteView(this);
     heading.addView(little, new LinearLayout.LayoutParams(dp(76), dp(76)));
@@ -526,7 +615,7 @@ public class MainActivity extends Activity {
     Ui.SpriteView sprite = new Ui.SpriteView(this);
     webPage.addView(sprite, new LinearLayout.LayoutParams(-1, dp(205)));
     TextView t = text("O mundo também dá play.", 27, Ui.TEXT);
-    t.setTypeface(Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+    t.setTypeface(Ui.display(this));
     webPage.addView(t);
     gap(webPage, 10);
     TextView desc = text(
@@ -598,7 +687,7 @@ public class MainActivity extends Activity {
                 clearQueue();
               if (n == 4)
                 new AlertDialog.Builder(this)
-                    .setTitle("RetroPlayer 1.1")
+                    .setTitle("RetroPlayer 1.2")
                     .setMessage(
                         "Música, vídeo e companhia.\n\nPlayer nativo para Android com pastas, "
                         + "favoritos, áudio em segundo plano, salas por link e chat.\n\nA "
@@ -765,7 +854,7 @@ public class MainActivity extends Activity {
           : track.mime.startsWith("video/")                   ? "Vídeo"
                                                               : "Áudio";
       info.setText(origin + "  •  " + String.format(Locale.getDefault(), "%02d", at + 1));
-      item.setBackground(Ui.shape(MainActivity.this, current ? 0xff232f24 : bg, 12));
+      item.setBackground(Ui.shape(MainActivity.this, current ? Ui.PANEL : bg, 8));
       ((ImageView) item.getChildAt(0))
           .setImageDrawable(new Ui.Glyph(current    ? "headphones"
                   : track.mime.startsWith("video/") ? "play"
@@ -901,7 +990,7 @@ public class MainActivity extends Activity {
         try {
           JSONObject s = new JSONObject(service.state);
           boolean has = service.index >= 0;
-          String name = has ? service.tracks.get(service.index).name : "Dê play no seu mundo.";
+          String name = has ? service.tracks.get(service.index).name : "PRONTO PARA O PLAY";
           title.setText(name);
           artist.setText(has ? ("https".equals(service.tracks.get(service.index).uri.getScheme())
                                        ? "Streaming da internet"
@@ -909,6 +998,8 @@ public class MainActivity extends Activity {
                                            + service.tracks.size())
                              : "Adicione uma música, um vídeo ou uma pasta");
           boolean playing = s.optBoolean("playing");
+          headerSubtitle.setText(
+              service.room ? "CYBRDECK // SALA ABERTA" : "CYBRDECK // OPERADOR LOCAL");
           int pos = (int) (s.optDouble("position") * 1000),
               duration = (int) (s.optDouble("duration") * 1000);
           if (!dragging) {
@@ -916,6 +1007,13 @@ public class MainActivity extends Activity {
             progress.setMax(duration);
             progress.setProgress(pos);
           }
+          trace.update(duration > 0 ? (float) pos / duration : 0);
+          playbackState.setText((playing      ? "REPRODUZINDO"
+                                        : has ? "PAUSADO"
+                                              : "AGUARDANDO")
+              + " // "
+              + (duration > 0 ? Math.min(100, (int) (100L * pos / duration)) + "% REPRODUZIDO"
+                              : "CANAL DE ÁUDIO"));
           progress.setEnabled(duration > 0 && service.ready);
           total.setText(duration > 0 ? clock(duration / 1000) : has ? "AO VIVO" : "0:00");
           play.setImageDrawable(new Ui.Glyph(playing ? "pause" : "play", bg));
@@ -923,7 +1021,8 @@ public class MainActivity extends Activity {
               && (service.tracks.get(service.index).mime.startsWith("video/")
                   || (service.ready && service.player.getVideoHeight() > 0));
           video.setVisibility(isVideo ? View.VISIBLE : View.GONE);
-          artwork.setVisibility(isVideo ? View.GONE : View.VISIBLE);
+          artwork.setVisibility(View.VISIBLE);
+          artFrame.setVisibility(isVideo ? View.VISIBLE : View.GONE);
           meta.setText(isVideo ? "VÍDEO" : "ESTÉREO");
           if (isVideo && service.ready) {
             int vw = service.player.getVideoWidth(), vh = service.player.getVideoHeight();
@@ -958,6 +1057,7 @@ public class MainActivity extends Activity {
             lastVersion = service.tracksVersion;
             lastIndex = service.index;
             filterQueue();
+            updateRecent();
           }
           updateModeIcons();
           JSONArray chats = new JSONArray(service.chatJson());
@@ -975,8 +1075,8 @@ public class MainActivity extends Activity {
               JSONObject j = chats.getJSONObject(i);
               LinearLayout bubble = vertical();
               bubble.setPadding(dp(12), dp(10), dp(12), dp(10));
-              bubble.setBackground(Ui.shape(MainActivity.this,
-                  j.getString("name").equals(nickname) ? 0xff233126 : panel, 14));
+              bubble.setBackground(Ui.shape(
+                  MainActivity.this, j.getString("name").equals(nickname) ? Ui.RAISED : panel, 14));
               TextView author = text(j.getString("name") + "  ·  "
                       + new java.text.SimpleDateFormat("HH:mm", Locale.getDefault())
                           .format(new Date(j.getLong("time"))),

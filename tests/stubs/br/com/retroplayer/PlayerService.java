@@ -1,8 +1,8 @@
 package br.com.retroplayer;
+import android.content.res.AssetFileDescriptor;
 import java.io.*;
 import java.util.*;
 import org.json.*;
-import android.content.res.AssetFileDescriptor;
 public class PlayerService {
   public String token = "secret-session", state = "{\"playing\":true}", url = "";
   public boolean room = true;
@@ -50,6 +50,11 @@ public class PlayerService {
   }
   public InputStream open(String name) throws IOException {
     return new FileInputStream(new File(assets, name));
+  }
+  public InputStream openThemeAsset(String name) throws IOException {
+    return new FileInputStream(name.equals("cover.png")
+            ? new File("app/src/main/res/drawable-nodpi/deck_cover.png")
+            : new File(assets, "theme/" + name));
   }
   public synchronized void chat(String name, String text) {
     try {
