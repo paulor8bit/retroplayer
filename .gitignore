@@ -1,0 +1,13 @@
+.gradle/
+**/build/
+local.properties
+*.log
+*.jks
+*.keystore
+tools/cloudflared
+tools/dns/
+tools/test-json.jar
+app/src/main/jniLibs/
+tests/classes/
+tests/fixture.bin
+tests/guest-script.js

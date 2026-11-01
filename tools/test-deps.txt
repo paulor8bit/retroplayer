@@ -1,0 +1,3 @@
+Os testes JVM usam org.json:json:20240303 (somente testes).
+https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar
+Salve em tools/test-json.jar ou defina TEST_JSON_JAR.
