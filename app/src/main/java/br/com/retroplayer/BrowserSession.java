@@ -20,7 +20,9 @@ final class BrowserSession {
   boolean active = false, playing = false, backgroundEnabled = true, handoffPending = false,
           destroyed = false;
   double position = 0, duration = 0;
-  long ignoreUntil = 0;
+  long ignoreUntil = 0, queuePlayUntil = 0;
+  String queueId = "", guestUrl = "";
+  boolean queueWasPlaying;
   final Handler handler = new Handler(Looper.getMainLooper());
   @SuppressLint("SetJavaScriptEnabled")
   BrowserSession(PlayerService s) {
@@ -85,6 +87,9 @@ final class BrowserSession {
         if (host != null)
           host.loading(value);
       }
+      public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
+        return host != null && host.chooseFile(callback);
+      }
       public void onShowCustomView(View view, CustomViewCallback callback) {
         if (host != null)
           host.showFullscreen(view, callback);
@@ -124,9 +129,22 @@ final class BrowserSession {
     host = null;
     context.setBaseContext(service);
   }
+  void playQueued(String url) {
+    queueId = YouTubeLink.id(url);
+    queueWasPlaying = false;
+    web.getSettings().setAllowContentAccess(false);
+    queuePlayUntil = SystemClock.uptimeMillis() + 20000;
+    web.getSettings().setMediaPlaybackRequiresUserGesture(false);
+    navigate(url);
+  }
   void navigate(String url) {
     handoffPending = false;
     web.onResume();
+    String agent = WebSettings.getDefaultUserAgent(service);
+    if ("music.youtube.com".equalsIgnoreCase(Uri.parse(url).getHost()))
+      agent = agent.replaceFirst("\\([^)]*\\)", "(X11; Linux x86_64)")
+          .replace(" Mobile ", " ").replace("Version/4.0 ", "");
+    web.getSettings().setUserAgentString(agent);
     web.loadUrl(url);
   }
   void setBackground(boolean enabled) {
@@ -136,12 +154,12 @@ final class BrowserSession {
   void evaluateMedia(android.webkit.ValueCallback<JSONObject> callback) {
     if (destroyed)
       return;
-    String js = "(function(){var a=Array.from(document.querySelectorAll('video,audio'));var "
+    String js = "(function(){if(window.retroRoomState)return JSON.stringify(window.retroRoomState);var a=Array.from(document.querySelectorAll('video,audio'));var "
         + "m=a.find(x=>!x.paused&&!x.ended)||a.find(x=>x.currentSrc);if(!m)return "
         + "JSON.stringify({active:false});return "
         + "JSON.stringify({active:true,playing:!m.paused&&!m.ended,position:m.currentTime||"
         + "0,duration:Number.isFinite(m.duration)?m.duration:0,src:m.currentSrc||m.src||'',"
-        + "title:document.title});})()";
+        + "title:document.title,url:location.href,ended:m.ended});})()";
     web.evaluateJavascript(js, raw -> {
       try {
         Object decoded = new JSONTokener(raw).nextValue();
@@ -158,12 +176,28 @@ final class BrowserSession {
       evaluateMedia(j -> {
         if (destroyed || SystemClock.uptimeMillis() < ignoreUntil)
           return;
+        pageUrl = j.optString("url", pageUrl);
+        pageTitle = j.optString("title", pageTitle);
         boolean was = active;
         boolean wasPlaying = playing;
         playing = j.optBoolean("playing");
         active = playing || (active && j.optBoolean("active"));
         position = j.optDouble("position");
         duration = j.optDouble("duration");
+        if (!queueId.isEmpty() && queueId.equals(YouTubeLink.id(pageUrl))) {
+          if (playing) { queueWasPlaying = true; queuePlayUntil = 0; }
+          else if (j.optBoolean("active") && SystemClock.uptimeMillis() < queuePlayUntil) playMedia();
+          if(!playing&&queuePlayUntil>0&&SystemClock.uptimeMillis()>=queuePlayUntil){queuePlayUntil=0;service.error="YouTube não iniciou. Abra o YouTube Music no app e toque em reproduzir.";}
+          if (playing && service.index >= 0 && service.tracks.get(service.index).mime.equals("video/youtube")) {
+            PlayerService.Track track = service.tracks.get(service.index);
+            if (!track.name.equals(pageTitle)) { track.name = pageTitle; service.tracksVersion++; service.saveQueue(); }
+          }
+          if (queueWasPlaying && j.optBoolean("ended")) {
+            queueWasPlaying = false;
+            if (service.repeat) { seekMedia(0); playMedia(); }
+            else if (service.index < service.tracks.size() - 1 || service.shuffle) service.next(1);
+          }
+        }
         if (playing && service.ready && service.player.isPlaying())
           service.pause();
         if ((active != was || playing != wasPlaying) && !destroyed)
@@ -179,10 +213,12 @@ final class BrowserSession {
       return;
     }
     web.onResume();
+    if(host!=null&&host.roomMode)return;
     evaluateMedia(j -> {
       if (destroyed || handoffPending || SystemClock.uptimeMillis() < ignoreUntil
           || !j.optBoolean("playing"))
         return;
+      if (!YouTubeLink.id(pageUrl).isEmpty()) return;
       String src = j.optString("src");
       Uri uri = Uri.parse(src);
       // Direct, unprotected HTML media can move to the native service for screen-off playback.
@@ -205,14 +241,14 @@ final class BrowserSession {
     ignoreUntil = SystemClock.uptimeMillis() + 1800;
     playing = false;
     web.evaluateJavascript(
-        "document.querySelectorAll('video,audio').forEach(function(m){m.pause()})", null);
+        "if(typeof roomPauseAudio==='function')roomPauseAudio();document.querySelectorAll('video,audio').forEach(function(m){m.pause()})", null);
   }
   void playMedia() {
     if (destroyed)
       return;
     web.onResume();
     web.evaluateJavascript("(function(){var "
-            + "m=document.querySelector('video,audio');if(m)m.play().catch(function(){})})()",
+            + "m=document.querySelector('video,audio');if(typeof roomResumeAudio==='function'){roomResumeAudio();return;}if(m)m.play().catch(function(){})})()",
         null);
   }
   void seekMedia(int position) {

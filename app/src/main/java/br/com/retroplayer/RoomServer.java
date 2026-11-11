@@ -88,6 +88,27 @@ public class RoomServer {
         reply(out, 405, "text/plain", "Método inválido");
         return;
       }
+      if (req[0].equals("POST") && (endpoint.equals("upload") || endpoint.equals("queue"))) {
+        String origin = headers.get("origin");
+        if (origin != null && !Objects.equals(URI.create(origin).getRawAuthority(), headers.get("host"))) {
+          reply(out, 403, "text/plain", "Origem inválida"); return;
+        }
+        if (new JSONArray(s.sharedQueue).length() >= 200) { reply(out, 429, "text/plain", "Fila cheia (200 faixas). Peça ao anfitrião para remover músicas."); return; }
+        if (endpoint.equals("upload")) {
+          receiveUpload(in, out, headers, prefix);
+          return;
+        }
+        if (!headers.getOrDefault("content-type", "").startsWith("application/json")) { reply(out, 400, "text/plain", "JSON necessário"); return; }
+        int size = Integer.parseInt(headers.getOrDefault("content-length", "0"));
+        if (size < 1 || size > 8192) { reply(out, 413, "text/plain", "Link muito grande"); return; }
+        if (!allowContribution()) { reply(out, 429, "text/plain", "Aguarde um momento antes de adicionar outra faixa."); return; }
+        byte[] data = Io.bytes(in, size);
+        if (data.length != size) return;
+        JSONObject item = new JSONObject(new String(data, StandardCharsets.UTF_8));
+        boolean accepted = s.enqueueRoomLink(item.optString("url"), item.optString("title"), item.optString("name", "Visitante"), s.token);
+        reply(out, accepted ? 202 : 400, "text/plain", accepted ? "Música enviada para a fila." : "Use um link HTTPS de música, vídeo ou YouTube Music.");
+        return;
+      }
       if (req[0].equals("POST")) {
         if (!endpoint.equals("chat")
             || !headers.getOrDefault("content-type", "").startsWith("application/json")) {
@@ -134,6 +155,22 @@ public class RoomServer {
             out.write(bytes);
           out.flush();
         }
+        return;
+      }
+      if (endpoint.equals("queue")) { reply(out, 200, "application/json", s.sharedQueue); return; }
+      if (endpoint.equals("live")) {
+        PcmBroadcast live = s.capture;
+        if (live == null || !live.running) { reply(out, 404, "text/plain", "Captura encerrada"); return; }
+        PcmBroadcast.Listener listener = live.subscribe(() -> { try { sock.close(); } catch (IOException ignored) {} });
+        if (listener == null) { reply(out, 503, "text/plain", "Limite de ouvintes da captura (4)."); return; }
+        try {
+          head(out, 200, "application/octet-stream", -1, "X-Accel-Buffering: no\r\n"); out.flush();
+          if (!req[0].equals("HEAD")) while (running && s.room && prefix.equals("/" + s.token + "/") && live.running && listener.open.get()) {
+            byte[] chunk = listener.next();
+            if (chunk == null || chunk.length == 0) break;
+            out.write(chunk); out.flush();
+          }
+        } finally { listener.close(); }
         return;
       }
       if (endpoint.equals("state")) {
@@ -228,8 +265,49 @@ public class RoomServer {
     } catch (Exception ignored) {
     }
   }
+  long contributionWindow;
+  int contributionCount;
+  synchronized boolean allowContribution() {
+    long now = System.currentTimeMillis();
+    if (now - contributionWindow > 10000) { contributionWindow = now; contributionCount = 0; }
+    return ++contributionCount <= 10;
+  }
+  void receiveUpload(InputStream in, OutputStream out, Map<String,String> headers, String prefix) throws IOException {
+    long size;
+    try { size = Long.parseLong(headers.getOrDefault("content-length", "0")); }
+    catch (NumberFormatException e) { reply(out, 400, "text/plain", "Tamanho inválido"); return; }
+    String name, author;
+    try {
+      name = RoomUploads.name(URLDecoder.decode(headers.getOrDefault("x-file-name", ""), "UTF-8"));
+      author = URLDecoder.decode(headers.getOrDefault("x-guest-name", "Visitante"), "UTF-8");
+    } catch (IllegalArgumentException e) { reply(out, 400, "text/plain", "Nome inválido"); return; }
+    if (name.isEmpty() || size < 1 || size > RoomUploads.MAX_FILE) { reply(out, 413, "text/plain", "Escolha áudio/vídeo de até 100 MB."); return; }
+    if (!allowContribution()) { reply(out, 429, "text/plain", "Aguarde antes de enviar outra música."); return; }
+    File temp;
+    try { temp = s.uploads.reserve(size, name); }
+    catch (IOException e) { reply(out, 429, "text/plain", e.getMessage()); return; }
+    boolean committed = false;
+    try {
+      try (OutputStream file = new FileOutputStream(temp)) {
+        byte[] buffer = new byte[65536]; long remaining = size;
+        while (remaining > 0 && s.room && prefix.equals("/" + s.token + "/")) {
+          int n = in.read(buffer, 0, (int)Math.min(buffer.length, remaining));
+          if (n < 0) throw new EOFException("Envio incompleto");
+          file.write(buffer, 0, n); remaining -= n;
+        }
+        if (remaining != 0 || !s.room || !prefix.equals("/" + s.token + "/")) throw new IOException("Sala encerrada durante o envio");
+      }
+      File file = new File(temp.getParentFile(), temp.getName().replaceFirst("\\.part$", ""));
+      if (!temp.renameTo(file)) throw new IOException("Não foi possível salvar a música");
+      s.acceptUpload(file, name, author, prefix.substring(1, prefix.length() - 1));
+      committed = true;
+      reply(out, 202, "text/plain", "Arquivo recebido e enviado para a fila.");
+    } finally { s.uploads.release(size); if (!committed) temp.delete(); }
+  }
   void head(OutputStream out, int status, String mime, long size, String extra) throws IOException {
     String statusText = status == 200 ? "OK"
+        : status == 202 ? "Accepted"
+        : status == 503 ? "Service Unavailable"
         : status == 206               ? "Partial Content"
         : status == 404               ? "Not Found"
         : status == 416               ? "Range Not Satisfiable"
@@ -237,8 +315,8 @@ public class RoomServer {
     String h = "HTTP/1.1 " + status + " " + statusText + "\r\nContent-Type: " + mime + "\r\n"
         + (size >= 0 ? "Content-Length: " + size + "\r\n" : "")
         + ("Connection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: "
-            + "nosniff\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src "
-            + "'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src 'self' "
+            + "nosniff\r\nReferrer-Policy: strict-origin\r\nContent-Security-Policy: default-src "
+            + "'self'; script-src 'unsafe-inline' https://www.youtube.com https://s.ytimg.com; style-src 'unsafe-inline'; frame-src https://www.youtube.com; media-src 'self' "
             + "https:; font-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors "
               + "'none'\r\n")
         + extra + "\r\n";

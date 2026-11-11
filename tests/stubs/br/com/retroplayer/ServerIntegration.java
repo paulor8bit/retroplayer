@@ -30,7 +30,7 @@ public class ServerIntegration {
     try {
       check(get(base, "wrong/state", null).statusCode() == 404, "secret token required");
       check(get(base, room + "state", null).statusCode() == 200, "state accessible");
-      check(new String(get(base, room, null).body()).contains("ROOM CHAT"), "guest page served");
+      check(new String(get(base, room, null).body()).contains("id=\"chat\""), "guest page served");
       HttpResponse<byte[]> font = get(base, room + "theme/mono.ttf", null);
       check(font.statusCode() == 200
               && font.headers().firstValue("Content-Type").orElse("").equals("font/ttf")

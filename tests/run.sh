@@ -7,8 +7,15 @@ if [ ! -f "$TEST_JSON_JAR" ]; then
   printf '%s\n' 'Set TEST_JSON_JAR to an org.json JAR (org.json:json:20240303).'
   exit 1
 fi
-javac -cp "$TEST_JSON_JAR" -d tests/classes tests/stubs/android/content/res/AssetFileDescriptor.java tests/stubs/br/com/retroplayer/PlayerService.java app/src/main/java/br/com/retroplayer/Io.java app/src/main/java/br/com/retroplayer/RoomServer.java tests/stubs/br/com/retroplayer/ServerIntegration.java
+javac -cp "$TEST_JSON_JAR" -d tests/classes tests/stubs/android/content/res/AssetFileDescriptor.java tests/stubs/br/com/retroplayer/PlayerService.java app/src/main/java/br/com/retroplayer/Io.java app/src/main/java/br/com/retroplayer/RoomServer.java app/src/main/java/br/com/retroplayer/PcmBroadcast.java app/src/main/java/br/com/retroplayer/RoomUploads.java app/src/main/java/br/com/retroplayer/RoomLink.java app/src/main/java/br/com/retroplayer/YouTubeLink.java app/src/main/java/br/com/retroplayer/MediaFiles.java tests/stubs/br/com/retroplayer/ServerIntegration.java
 java -cp "tests/classes:$TEST_JSON_JAR" br.com.retroplayer.ServerIntegration
 node tests/sync-test.js
 javac -cp "$TEST_JSON_JAR" -d tests/classes app/src/main/java/br/com/retroplayer/MediaFiles.java app/src/main/java/br/com/retroplayer/BookmarkStore.java tests/stubs/br/com/retroplayer/LibraryIntegration.java
 java -cp "tests/classes:$TEST_JSON_JAR" br.com.retroplayer.LibraryIntegration
+javac -cp "$TEST_JSON_JAR" -d tests/classes app/src/main/java/br/com/retroplayer/Lyrics.java app/src/main/java/br/com/retroplayer/YouTubeLink.java tests/stubs/br/com/retroplayer/MusicIntegration.java
+java -cp "tests/classes:$TEST_JSON_JAR" br.com.retroplayer.MusicIntegration
+node tests/youtube-sync-test.js
+javac -cp "$TEST_JSON_JAR:tests/classes" -d tests/classes tests/stubs/br/com/retroplayer/RoomFeaturesIntegration.java
+java -cp "tests/classes:$TEST_JSON_JAR" br.com.retroplayer.RoomFeaturesIntegration
+node tests/live-audio-test.js
+node tests/queue-contribution-test.js

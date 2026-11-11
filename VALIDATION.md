@@ -1,21 +1,29 @@
-# Validação — RetroPlayer 1.2 / Cyberdeck
+# Validação — RetroPlayer Together 2.0
 
-- Compilação `assembleDebug`: passou.
-- Android Lint `lintDebug`: passou, **0 errors, 11 warnings**. Avisos incluem internacionalização, ABI ARM64, backup, wakelock e alocações do pequeno relógio decorativo.
-- **20 verificações HTTP passaram**: token, página, mídia completa, ranges, faixa antiga, chat, origem das mensagens, link remoto, sala encerrada, fontes/capa, MIME das fontes, CSP, lista fixa de recursos e revogação do tema ao encerrar a sala.
-- **14 verificações de biblioteca/favoritos passaram**: subpastas, ciclos, duplicatas, cancelamento, pastas sem acesso, filtros e persistência/validação dos favoritos.
-- JavaScript do convidado: passou nos cenários de ativação por toque, pausa, seek, correção de deriva, troca de faixa e encerramento.
-- HTML conferido: IDs únicos, controles existentes de mídia/chat presentes e capa com texto alternativo. O CSS inclui regras para telas pequenas e grandes.
-- APK: assinatura v2 verificada; mesmo certificado da versão anterior. Identificador `br.com.retroplayer`, versão interna 3, versão 1.2.
-- APK conferido: fontes locais e licenças, página Cyberdeck, classes do tema angular e navegador persistente presentes; executável Cloudflared idêntico ao binário preparado.
-- Cópia em `/sdcard/Download/RetroPlayer.apk` idêntica ao arquivo `apk/RetroPlayer.apk` por SHA256.
+- `assembleDebug` e `lintDebug`: passaram no Termux com Gradle 8.7, Android SDK 34 e AAPT2 ARM64.
+- Lint: **0 erros, 15 avisos**. Os avisos incluem internacionalização, ABI ARM64, backup, wakelock e código de desenho legado.
+- **82 verificações Java passaram**: 20 de HTTP/mídia/chat/acesso; 14 de importação/favoritos; 19 de letras/timestamps/links YouTube; 29 de convites, fila colaborativa, uploads e áudio ao vivo.
+- **4 suítes JavaScript passaram**: sincronização de mídia local; YouTube; captura ao vivo; contribuições da fila.
+- O servidor HTTP real foi executado no JVM com adaptadores de arquivo/serviço: links YouTube recebidos, fila consultada, arquivo enviado com bytes preservados, rejeição de tipos inválidos e POST entre origens, reservas liberadas, endpoint PCM com bytes preservados e revogação da sala.
+- O fan-out de áudio foi testado com dados PCM sintéticos: quatro ouvintes, desconexão de cliente lento e fechamento dos ouvintes.
+- O script real de áudio ao vivo foi testado com adaptador Web Audio: ativação por gesto, remontagem de frames partidos, decodificação estéreo little-endian, volume, mudança de fonte e encerramento.
+- Contribuições do convidado: nomes renderizados como texto, POST de link, cabeçalhos do arquivo/nome, progresso, limite de tamanho e cancelamento ao fechar a sala.
+- HTML: IDs únicos e referências dos scripts existentes. Manifesto, tema e ícones XML conferidos.
+- APK: **2.0, código 5**, identificador `br.com.retroplayer`, Android 8+, ARM64. Assinatura v2 verificada, com o mesmo certificado da versão anterior.
+- Página atual da sala, nova arte e classes de captura/fila/convites conferidas dentro do APK.
+- APK atualizado em `apk/RetroPlayer.apk` e copiado para `/sdcard/Download/RetroPlayer.apk`, com SHA256 idêntico.
+- `git diff --check`: passou.
 
-## Limites
+## Limites dos testes
 
-A referência `/sdcard/Download/modelo.jpg` foi inspecionada e usada para orientar cores, fontes, molduras, botões, composição e marcadores. O arquivo de referência não está incluído no APK nem no repositório. Os detalhes estão em [artwork/DESIGN-v1.2.md](artwork/DESIGN-v1.2.md).
+Não há dispositivo conectado por ADB nem navegador headless instalado. O layout Android/HTML não foi verificado por captura de tela em execução. A arte gerada foi inspecionada como imagem.
 
-Não há dispositivo Android autorizado conectado ao ADB nem navegador headless instalado neste ambiente. O layout não foi verificado por captura de tela de APK ou navegador em execução. Os testes cobrem o servidor real com adaptadores de arquivos no JVM e o comportamento JavaScript, sem substituir testes de codecs, áudio com tela apagada ou sincronização entre dois aparelhos.
+A captura real de outro aplicativo, os diálogos MediaProjection/RECORD_AUDIO, o serviço em segundo plano com tela apagada, o seletor de arquivos dentro do WebView, a abertura de convites pelo Android e a reprodução/sincronia entre dois aparelhos **ainda precisam de teste em aparelhos reais**. Os testes JavaScript usam adaptadores; não consultam YouTube nem capturam áudio de um aplicativo Android. O túnel TryCloudflare não foi reconectado para um ensaio ponta a ponta nesta entrega. A busca LRCLIB ao vivo também não foi repetida.
 
-O serviço de reprodução, a importação de pastas e os favoritos foram mantidos. Sites protegidos ainda podem limitar áudio em segundo plano. O binário do túnel continua o mesmo validado na versão 1.0; o teste de conectividade não foi repetido nesta alteração visual.
+A implementação usa AudioPlaybackCapture no Android 10+ e respeita a política do aplicativo de origem: pode receber silêncio quando o app bloqueia captura. Não captura o microfone nem cria gravação de tela. O áudio ao vivo usa PCM estéreo 44,1 kHz com até quatro ouvintes e cerca de 11 MB/min por ouvinte.
 
-SHA256 do APK: `3faa9a06fedc019113a496ffb0a2c795840514a7c6aa488f0dab2132fb37fbbc`.
+A fila aceita uploads de até 100 MiB, com limite total de 300 MiB e dois envios simultâneos. Os arquivos completos recebidos ficam no aparelho do anfitrião até a remoção da faixa/lista. O anfitrião mantém o controle de reprodução.
+
+O anfitrião toca YouTube pelo site dentro do WebView; os convidados usam o player incorporado oficial, cada um na sua conexão. Não foi portado InnerTube. Restrições do YouTube, anúncios e políticas de segundo plano continuam se aplicando.
+
+SHA256 do APK: `7bae665b35e1257d40ad0e268fa1e42eb3488e5212bfc4c83b721b2e78aa91f0`.

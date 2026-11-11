@@ -1,12 +1,12 @@
-RetroPlayer 1.2 — app e sala inspirados na referência modelo.jpg.
+# RetroPlayer Together 2.0
 
-- Fundo escuro avermelhado, texto e molduras em ciano, botões e detalhes em coral.
-- Tipografia Share Tech Mono e Rajdhani, molduras angulares, códigos de barras decorativos e composição Cyberdeck.
-- Player nativo com capa compacta, identificação do arquivo, progresso e últimos arquivos adicionados.
-- Tema aplicado também à biblioteca, sala, navegação e navegador.
-- Página do convidado com o mesmo visual, layout adaptado para celular e computador, player e chat.
-- Fontes e capa servidas pelo próprio app, sob o token da sala.
+- Nova identidade: tipografia de sistema, fundo azul-escuro, cartões discretos, controles mais claros e arte original de áudio em metal/luz azul.
+- Sala dentro do aplicativo: convite HTTPS, botão Abrir no app e entrada por link.
+- Fila colaborativa com nome e fonte das contribuições.
+- Convidados adicionam links do YouTube Music e enviam arquivos locais com progresso, inclusive pelo seletor nativo do Android.
+- Arquivos recebidos ficam no armazenamento privado do anfitrião e são removidos com a faixa.
+- Captura de áudio permitido de outros aplicativos no Android 10+, com consentimento do sistema, notificação e controles de parada.
+- Áudio ao vivo estéreo para até quatro convidados, usando o mesmo convite; indicador de ausência de sinal e reconexão.
+- Letras, biblioteca, importação de pastas, favoritos e chat preservados.
 
-Android 8+ / ARM64. Mesmo identificador e certificado da versão anterior; versão interna 3. Instale o APK e abra uma nova sala para ver o tema no link.
-
-Compilação, Android Lint e testes de servidor/sincronização executados. Não há dispositivo Android autorizado conectado ao ADB para validar o layout em APK instalado ou reproduzir entre dois aparelhos.
+Apps de origem podem bloquear a captura. YouTube pode limitar incorporação, login, região e segundo plano. A captura usa cerca de 11 MB/min por ouvinte e tem atraso de rede. Reprodução e permissões precisam de validação em aparelhos reais.

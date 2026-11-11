@@ -21,7 +21,8 @@ public class BrowserActivity extends Activity {
   ImageView star;
   View fullscreen;
   WebChromeClient.CustomViewCallback fullscreenCallback;
-  boolean resumed;
+  boolean resumed, roomMode;
+  ValueCallback<Uri[]> fileCallback;
   int dp(int n) {
     return Ui.dp(this, n);
   }
@@ -37,7 +38,13 @@ public class BrowserActivity extends Activity {
       return;
     }
     session = s.browser();
+    String requested=getIntent().getStringExtra("url");
+    roomMode=getIntent().getBooleanExtra("room",false)||(requested==null&&!session.guestUrl.isEmpty());
+    if(roomMode){
+      if(requested!=null&&!requested.equals(session.guestUrl)){s.controlPause();if(s.room)s.closeRoom();session.guestUrl=requested;}
+    }else session.guestUrl="";
     web = session.web;
+    web.getSettings().setAllowContentAccess(roomMode);
     LinearLayout root = Ui.column(this);
     root.setBackgroundColor(Ui.BG);
     setContentView(root);
@@ -46,18 +53,20 @@ public class BrowserActivity extends Activity {
     ImageView close = Ui.iconButton(this, "back", Ui.TEXT, this::finish);
     close.setContentDescription("Voltar ao RetroPlayer");
     header.addView(close, new LinearLayout.LayoutParams(dp(44), dp(44)));
-    TextView title = Ui.text(this, "Explorar", 21, Ui.TEXT);
+    TextView title = Ui.text(this, roomMode?"Sala compartilhada":"Explorar", 21, Ui.TEXT);
     title.setTypeface(Ui.display(this));
     header.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
     ImageView bookmarks = Ui.iconButton(this, "library", Ui.LIME, this::favorites);
     bookmarks.setContentDescription("Sites favoritos");
     header.addView(bookmarks, new LinearLayout.LayoutParams(dp(48), dp(48)));
+    if(roomMode)bookmarks.setVisibility(View.GONE);
     root.addView(header);
     LinearLayout bar = Ui.row(this);
     bar.setBackground(Ui.shape(this, Ui.PANEL, 16));
     LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, dp(50));
     bp.setMargins(dp(16), 0, dp(16), dp(8));
     root.addView(bar, bp);
+    if(roomMode)bar.setVisibility(View.GONE);
     ImageView search = Ui.icon(this, "search", Ui.MUTED, 21);
     bar.addView(search, new LinearLayout.LayoutParams(dp(44), dp(44)));
     address = new EditText(this);
@@ -127,8 +136,10 @@ for (Object[] e : entries) {
   if (e[0].equals("star"))
     star = icon;
 }
-root.addView(tools);
+if(!roomMode)root.addView(tools);
 pageChanged();
+String initialUrl = getIntent().getStringExtra("url");
+if (initialUrl != null && BookmarkStore.valid(initialUrl)) open(roomMode?initialUrl+"#app":initialUrl);
 }
 List<BookmarkStore.Bookmark> bookmarks() {
   return BookmarkStore.read(getSharedPreferences("browser", 0).getString("bookmarks", "[]"));
@@ -142,8 +153,6 @@ void persist(List<BookmarkStore.Bookmark> list) {
 void renderHome() {
   LinearLayout content = Ui.column(this);
   content.setPadding(dp(24), dp(14), dp(24), dp(24));
-  Ui.SpriteView sprite = new Ui.SpriteView(this);
-  content.addView(sprite, new LinearLayout.LayoutParams(-1, dp(170)));
   TextView title = Ui.text(this, "A internet no seu ritmo.", 26, Ui.TEXT);
   title.setGravity(Gravity.CENTER);
   title.setTypeface(Ui.display(this));
@@ -244,6 +253,7 @@ void pageChanged() {
         saved = true;
     star.setImageDrawable(new Ui.Glyph(saved ? "starfill" : "star", saved ? Ui.LIME : Ui.TEXT));
   }
+  if(roomMode){setStatus("Convidado • adicione músicas na fila abaixo");return;}
   setStatus(session.backgroundEnabled ? "Áudio em segundo plano ativado"
                                       : "Áudio em segundo plano desativado");
 }
@@ -384,6 +394,7 @@ void direct(String initial) {
               toast("Use um link HTTPS direto válido.");
               return;
             }
+            if (!YouTubeLink.id(url).isEmpty()) { open(url); return; }
             Map<String, String> headers = new HashMap<>();
             headers.put("User-Agent", web.getSettings().getUserAgentString());
             if (session.pageUrl.startsWith("https://"))
@@ -396,6 +407,18 @@ void direct(String initial) {
             finish();
           })
       .show();
+}
+boolean chooseFile(ValueCallback<Uri[]> callback){
+  if(!roomMode)return false;
+  if(fileCallback!=null)fileCallback.onReceiveValue(null);
+  fileCallback=callback;
+  Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*");
+  pick.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"audio/*","video/*"});
+  try{startActivityForResult(pick,11);return true;}catch(Exception e){fileCallback.onReceiveValue(null);fileCallback=null;toast("Não foi possível abrir os arquivos.");return true;}
+}
+@Override protected void onActivityResult(int request,int result,Intent data){
+  super.onActivityResult(request,result,data);
+  if(request==11&&fileCallback!=null){fileCallback.onReceiveValue(result==RESULT_OK&&data!=null&&data.getData()!=null?new Uri[]{data.getData()}:null);fileCallback=null;}
 }
 void showFullscreen(View view, WebChromeClient.CustomViewCallback callback) {
   if (fullscreen != null) {
@@ -450,6 +473,7 @@ protected void onStop() {
 @Override
 protected void onDestroy() {
   hideFullscreen();
+  if(fileCallback!=null){fileCallback.onReceiveValue(null);fileCallback=null;}
   if (session != null)
     session.detach(this);
   super.onDestroy();

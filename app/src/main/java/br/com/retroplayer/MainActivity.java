@@ -6,6 +6,7 @@ import android.content.pm.PackageManager;
 import android.graphics.*;
 import android.graphics.drawable.*;
 import android.media.*;
+import android.media.projection.*;
 import android.net.Uri;
 import android.os.*;
 import android.text.*;
@@ -29,7 +30,8 @@ public class MainActivity extends Activity {
   SeekBar progress;
   Ui.SpriteView mascot;
   Ui.ProgressTrace trace;
-  TextView playbackState;
+  TextView playbackState, lyricLine, lyricNext, lyricStatus, captureLabel;
+  Button captureButton, sourceButton;
   LinearLayout recentRows;
   EditText message, search;
   ListView queue;
@@ -72,6 +74,7 @@ public class MainActivity extends Activity {
     nickname = getPreferences(0).getString("nickname", "Anfitrião");
     startForegroundService(new Intent(this, PlayerService.class));
     build();
+    handler.postDelayed(() -> handleInvite(getIntent()), 250);
     if (saved != null)
       switchTab(saved.getInt("tab", 0));
     if (Build.VERSION.SDK_INT >= 33
@@ -110,22 +113,18 @@ public class MainActivity extends Activity {
     shell = vertical();
     shell.setBackgroundColor(bg);
     setContentView(shell);
-    Ui.StatusStrip strip = new Ui.StatusStrip(this);
-    LinearLayout.LayoutParams stripParams = new LinearLayout.LayoutParams(-1, dp(28));
-    stripParams.setMargins(dp(18), 0, dp(18), 0);
-    shell.addView(strip, stripParams);
     LinearLayout header = row();
-    header.setBackground(shape(bg, lime));
+    header.setBackgroundColor(bg);
     header.setPadding(dp(16), dp(8), dp(12), dp(8));
     ImageView mark = Ui.icon(this, "headphones", lime, 25);
     header.addView(mark, new LinearLayout.LayoutParams(dp(38), dp(48)));
     LinearLayout heading = vertical();
-    TextView brand = text("RETROPLAYER", 24, Ui.TEXT);
+    TextView brand = text("RetroPlayer", 25, Ui.TEXT);
     brand.setTypeface(Ui.display(this));
     brand.setSingleLine(true);
     heading.addView(brand);
-    headerSubtitle = Ui.label(this, "CYBRDECK // OPERADOR LOCAL");
-    headerSubtitle.setTextSize(9);
+    headerSubtitle = Ui.label(this, "Música fica melhor com companhia");
+    headerSubtitle.setTextSize(11);
     heading.addView(headerSubtitle);
     header.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
     icon(header, "plus", Ui.TEXT, this::addMenu, 44);
@@ -147,7 +146,7 @@ public class MainActivity extends Activity {
     mp.setMargins(dp(12), dp(4), dp(12), dp(6));
     shell.addView(mini, mp);
     ImageView cover = new ImageView(this);
-    cover.setImageResource(R.drawable.deck_cover);
+    cover.setImageResource(R.drawable.album_art);
     cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
     cover.setBackground(Ui.shape(this, bg, 9));
     cover.setClipToOutline(true);
@@ -171,11 +170,11 @@ public class MainActivity extends Activity {
       if (service != null)
         service.next(1);
     }, 42);
-    mini.setOnClickListener(v -> switchTab(0));
+    mini.setOnClickListener(v -> {if(service!=null&&service.browser!=null&&!service.browser.guestUrl.isEmpty())openBrowser();else switchTab(0);});
     LinearLayout nav = row();
     nav.setPadding(dp(8), dp(2), dp(8), dp(4));
     nav.setBackgroundColor(bg);
-    String[] names = {"PLAYER", "ARQUIVOS", "SALA", "WEB"},
+    String[] names = {"Player", "Biblioteca", "Sala", "Explorar"},
              icons = {"headphones", "library", "room", "web"};
     for (int i = 0; i < 4; i++) {
       final int n = i;
@@ -196,185 +195,67 @@ public class MainActivity extends Activity {
   }
   void buildPlayer() {
     root = padded();
-    LinearLayout channel = row();
-    TextView label = Ui.label(this, "ACTIVE_MEDIA // PLAYER");
-    channel.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
-    meta = Ui.label(this, "ESTÉREO");
-    meta.setTextColor(lime);
-    channel.addView(meta);
-    root.addView(channel);
-    gap(root, 14);
-    LinearLayout activeMedia = row();
-    activeMedia.setGravity(Gravity.TOP);
-    activeMedia.setPadding(dp(12), dp(14), dp(12), dp(14));
-    activeMedia.setBackground(shape(bg, lime));
+    LinearLayout heading = row();
+    heading.addView(Ui.label(this, "TOCANDO AGORA"), new LinearLayout.LayoutParams(0,-2,1));
+    meta = text("Sua biblioteca", 12, muted); heading.addView(meta); root.addView(heading);
+    gap(root, 18);
     artwork = new ImageView(this);
-    artwork.setImageResource(R.drawable.deck_cover);
+    artwork.setImageResource(R.drawable.album_art);
     artwork.setScaleType(ImageView.ScaleType.CENTER_CROP);
-    artwork.setBackground(shape(panel, lime));
-    artwork.setClipToOutline(true);
-    activeMedia.addView(artwork, new LinearLayout.LayoutParams(dp(94), dp(132)));
-    LinearLayout trackInfo = vertical();
-    trackInfo.setPadding(dp(14), 0, 0, 0);
-    trackInfo.addView(Ui.label(this, "ARQUIVO ATIVO"));
-    gap(trackInfo, 5);
-    title = text("PRONTO PARA O PLAY", 27, Ui.TEXT);
-    title.setTypeface(Ui.display(this));
-    title.setAllCaps(true);
-    title.setMaxLines(3);
-    title.setEllipsize(TextUtils.TruncateAt.END);
-    trackInfo.addView(title);
-    gap(trackInfo, 7);
-    artist = text("Selecione um arquivo ou uma pasta", 12, muted);
-    trackInfo.addView(artist);
-    gap(trackInfo, 12);
-    Ui.BarcodeView barcode = new Ui.BarcodeView(this);
-    trackInfo.addView(barcode, new LinearLayout.LayoutParams(dp(86), dp(16)));
-    activeMedia.addView(trackInfo, new LinearLayout.LayoutParams(0, -2, 1));
-    root.addView(activeMedia);
-    gap(root, 14);
-    artFrame = new FrameLayout(this);
-    artFrame.setBackground(shape(bg, Ui.LINE));
-    artFrame.setClipToOutline(true);
-    video = new SurfaceView(this);
-    video.setVisibility(View.GONE);
-    artFrame.addView(video, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
-    video.getHolder().addCallback(new SurfaceHolder.Callback() {
-      public void surfaceCreated(SurfaceHolder h) {
-        if (service != null)
-          service.attach(h.getSurface());
-      }
-      public void surfaceChanged(SurfaceHolder h, int f, int w, int ht) {
-        if (service != null)
-          service.attach(h.getSurface());
-      }
-      public void surfaceDestroyed(SurfaceHolder h) {
-        if (service != null)
-          service.attach(null);
-      }
+    artwork.setBackground(Ui.shape(this, panel, 24)); artwork.setClipToOutline(true);
+    int coverSize = Math.min(dp(360), getResources().getDisplayMetrics().widthPixels - dp(48));
+    LinearLayout.LayoutParams art = new LinearLayout.LayoutParams(coverSize,coverSize); art.gravity=Gravity.CENTER_HORIZONTAL;
+    root.addView(artwork,art);
+    gap(root, 22);
+    title = text("Encontre seu próximo play", 27, Ui.TEXT);
+    title.setMaxLines(2); title.setEllipsize(TextUtils.TruncateAt.END); root.addView(title);
+    gap(root, 7);
+    artist = text("Sua biblioteca, suas descobertas, sua companhia.", 14, muted); root.addView(artist);
+    gap(root, 16);
+    artFrame = new FrameLayout(this); artFrame.setBackground(Ui.shape(this,panel,16)); artFrame.setClipToOutline(true);
+    video = new SurfaceView(this); video.setVisibility(View.GONE);
+    artFrame.addView(video,new FrameLayout.LayoutParams(-1,-1,Gravity.CENTER));
+    video.getHolder().addCallback(new SurfaceHolder.Callback(){
+      public void surfaceCreated(SurfaceHolder h){if(service!=null)service.attach(h.getSurface());}
+      public void surfaceChanged(SurfaceHolder h,int f,int w,int ht){if(service!=null)service.attach(h.getSurface());}
+      public void surfaceDestroyed(SurfaceHolder h){if(service!=null)service.attach(null);}
     });
-    artFrame.setVisibility(View.GONE);
-    root.addView(artFrame, new LinearLayout.LayoutParams(-1, dp(200)));
-    trace = new Ui.ProgressTrace(this);
-    root.addView(trace, new LinearLayout.LayoutParams(-1, dp(54)));
-    playbackState = Ui.label(this, "AGUARDANDO // 0% REPRODUZIDO");
-    playbackState.setTextColor(lime);
-    root.addView(playbackState);
-    gap(root, 10);
-    progress = new SeekBar(this);
-    progress.setPadding(dp(2), 0, dp(2), 0);
+    artFrame.setVisibility(View.GONE);root.addView(artFrame,new LinearLayout.LayoutParams(-1,dp(210)));
+    playbackState = text("Tudo pronto para ouvir",12,muted);root.addView(playbackState);
+    progress=new SeekBar(this);progress.setPadding(0,0,0,0);
     progress.setProgressTintList(android.content.res.ColorStateList.valueOf(lime));
     progress.setThumbTintList(android.content.res.ColorStateList.valueOf(lime));
-    progress.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-      public void onProgressChanged(SeekBar b, int value, boolean user) {
-        if (user)
-          elapsed.setText(clock(value / 1000));
-      }
-      public void onStartTrackingTouch(SeekBar b) {
-        dragging = true;
-      }
-      public void onStopTrackingTouch(SeekBar b) {
-        dragging = false;
-        if (service != null)
-          service.seek(b.getProgress());
-      }
+    progress.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+      public void onProgressChanged(SeekBar b,int n,boolean user){if(user)elapsed.setText(clock(n/1000));}
+      public void onStartTrackingTouch(SeekBar b){dragging=true;}
+      public void onStopTrackingTouch(SeekBar b){dragging=false;if(service!=null)service.controlSeek(b.getProgress());}
     });
-    root.addView(progress, new LinearLayout.LayoutParams(-1, dp(28)));
-    LinearLayout times = row();
-    elapsed = text("0:00", 11, muted);
-    elapsed.setTypeface(Typeface.MONOSPACE);
-    total = text("0:00", 11, muted);
-    total.setTypeface(Typeface.MONOSPACE);
-    times.addView(elapsed, new LinearLayout.LayoutParams(0, -2, 1));
-    times.addView(total);
-    root.addView(times);
-    gap(root, 10);
-    LinearLayout controls = row();
-    controls.setGravity(Gravity.CENTER);
-    shuffle = Ui.iconButton(this, "shuffle", muted, () -> {
-      if (service != null) {
-        service.shuffle = !service.shuffle;
-        updateModeIcons();
-      }
-    });
-    controls.addView(shuffle, new LinearLayout.LayoutParams(0, dp(48), 1));
-    icon(controls, "previous", Ui.TEXT, () -> {
-      if (service != null)
-        service.next(-1);
-    }, 52);
-    play = Ui.iconButton(this, "play", bg, () -> {
-      if (service != null)
-        service.toggle();
-    });
-    play.setContentDescription("Reproduzir ou pausar");
-    play.setBackground(Ui.ripple(this, Ui.ORANGE, 8));
-    play.setPadding(dp(20), dp(20), dp(20), dp(20));
-    LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(dp(70), dp(70));
-    pp.setMargins(dp(6), 0, dp(6), 0);
-    controls.addView(play, pp);
-    icon(controls, "next", Ui.TEXT, () -> {
-      if (service != null)
-        service.next(1);
-    }, 52);
-    repeat = Ui.iconButton(this, "repeat", muted, () -> {
-      if (service != null) {
-        service.repeat = !service.repeat;
-        updateModeIcons();
-      }
-    });
-    controls.addView(repeat, new LinearLayout.LayoutParams(0, dp(48), 1));
-    root.addView(controls);
-    gap(root, 14);
-    LinearLayout actions = row();
-    weight(actions, button("Adicionar mídia", false, this::addMenu));
-    weight(actions, button("Ouvir com alguém", false, () -> switchTab(2)));
-    root.addView(actions);
-    gap(root, 16);
-    LinearLayout extras = row();
-    ImageView eq = Ui.iconButton(this, "equalizer", muted, this::equalizer);
-    eq.setContentDescription("Equalizador");
-    extras.addView(eq, new LinearLayout.LayoutParams(dp(46), dp(46)));
-    extras.addView(text("Volume", 11, muted));
-    SeekBar vol = new SeekBar(this);
-    AudioManager audio = getSystemService(AudioManager.class);
-    vol.setMax(audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
-    vol.setProgress(audio.getStreamVolume(AudioManager.STREAM_MUSIC));
-    vol.setProgressTintList(android.content.res.ColorStateList.valueOf(lime));
-    vol.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-      public void onProgressChanged(SeekBar b, int n, boolean user) {
-        if (user)
-          audio.setStreamVolume(AudioManager.STREAM_MUSIC, n, 0);
-      }
-      public void onStartTrackingTouch(SeekBar b) {}
-      public void onStopTrackingTouch(SeekBar b) {}
-    });
-    extras.addView(vol, new LinearLayout.LayoutParams(0, dp(38), 1));
-    root.addView(extras);
-    gap(root, 12);
-    LinearLayout memo = row();
-    memo.setPadding(dp(14), dp(12), dp(14), dp(12));
-    memo.setBackground(shape(bg, lime));
-    ImageView memoIcon = Ui.icon(this, "headphones", Ui.ORANGE, 24);
-    memo.addView(memoIcon, new LinearLayout.LayoutParams(dp(40), dp(44)));
-    LinearLayout memoLabels = vertical();
-    memoLabels.addView(Ui.label(this, "CANAL DE ÁUDIO // LOCAL"));
-    gap(memoLabels, 5);
-    memoLabels.addView(text("Seu som continua em segundo plano.", 12, lime));
-    memo.addView(memoLabels, new LinearLayout.LayoutParams(0, -2, 1));
-    root.addView(memo);
-    gap(root, 20);
-    section(root, "ÚLTIMOS_ARQUIVOS");
-    recentRows = vertical();
-    root.addView(recentRows);
-    gap(root, 14);
-    LinearLayout footer = row();
-    Ui.BarcodeView code = new Ui.BarcodeView(this);
-    footer.addView(code, new LinearLayout.LayoutParams(dp(60), dp(19)));
-    TextView signature = Ui.label(this, "  RETROPLAYER // CYBR 1.2");
-    footer.addView(signature);
-    root.addView(footer);
-    playerPage = scroller(root);
-    pageViews.add(playerPage);
+    root.addView(progress,new LinearLayout.LayoutParams(-1,dp(32)));
+    LinearLayout times=row();elapsed=text("0:00",12,muted);total=text("0:00",12,muted);
+    times.addView(elapsed,new LinearLayout.LayoutParams(0,-2,1));times.addView(total);root.addView(times);
+    gap(root,12);
+    LinearLayout controls=row();controls.setGravity(Gravity.CENTER);
+    shuffle=Ui.iconButton(this,"shuffle",muted,()->{if(service!=null){service.shuffle=!service.shuffle;updateModeIcons();}});
+    shuffle.setContentDescription("Alternar reprodução aleatória");controls.addView(shuffle,new LinearLayout.LayoutParams(0,dp(48),1));
+    icon(controls,"previous",Ui.TEXT,()->{if(service!=null)service.next(-1);},52);
+    play=Ui.iconButton(this,"play",bg,()->{if(service!=null)service.controlToggle();});
+    play.setContentDescription("Reproduzir, pausar ou parar transmissão");play.setBackground(Ui.ripple(this,lime,40));
+    play.setPadding(dp(21),dp(21),dp(21),dp(21));controls.addView(play,new LinearLayout.LayoutParams(dp(72),dp(72)));
+    icon(controls,"next",Ui.TEXT,()->{if(service!=null)service.next(1);},52);
+    repeat=Ui.iconButton(this,"repeat",muted,()->{if(service!=null){service.repeat=!service.repeat;updateModeIcons();}});
+    repeat.setContentDescription("Alternar repetição");controls.addView(repeat,new LinearLayout.LayoutParams(0,dp(48),1));root.addView(controls);
+    gap(root,20);
+    LinearLayout actions=row();weight(actions,button("Adicionar música",false,this::addMenu));weight(actions,button("Ouvir junto",true,()->switchTab(2)));root.addView(actions);
+    gap(root,10);sourceButton=button("Abrir YouTube Music",false,this::currentMusic);root.addView(sourceButton);
+    gap(root,22);
+    LinearLayout lyricsCard=vertical();lyricsCard.setPadding(dp(20),dp(20),dp(20),dp(20));lyricsCard.setBackground(Ui.shape(this,panel,20));
+    lyricsCard.addView(Ui.label(this,"LETRA DA MÚSICA"));gap(lyricsCard,14);
+    lyricLine=text("Cada verso, no seu tempo.",24,Ui.TEXT);lyricLine.setMaxLines(7);lyricsCard.addView(lyricLine);
+    gap(lyricsCard,10);lyricNext=text("",18,muted);lyricsCard.addView(lyricNext);
+    gap(lyricsCard,12);lyricStatus=text("",12,muted);lyricsCard.addView(lyricStatus);gap(lyricsCard,12);
+    lyricsCard.addView(button("Ver letra e ajustar",false,this::lyricsMenu));root.addView(lyricsCard);
+    gap(root,24);section(root,"NA SUA FILA");recentRows=vertical();root.addView(recentRows);
+    gap(root,12);playerPage=scroller(root);pageViews.add(playerPage);
   }
   void updateRecent() {
     if (recentRows == null)
@@ -390,9 +271,9 @@ public class MainActivity extends Activity {
       LinearLayout item = row();
       item.setPadding(dp(6), dp(8), dp(6), dp(8));
       ImageView cover = new ImageView(this);
-      cover.setImageResource(R.drawable.deck_cover);
+      cover.setImageResource(R.drawable.album_art);
       cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
-      item.addView(cover, new LinearLayout.LayoutParams(dp(40), dp(50)));
+      item.addView(cover, new LinearLayout.LayoutParams(dp(48), dp(48)));
       LinearLayout labels = vertical();
       labels.setPadding(dp(12), 0, 0, 0);
       TextView name = text(track.name, 17, lime);
@@ -424,20 +305,16 @@ public class MainActivity extends Activity {
                 .setItems(new String[] {"Adicionar um arquivo", "Adicionar vários arquivos",
                               "Adicionar uma pasta", "Limpar lista de reprodução"},
                     (d, n) -> {
-                      if (n == 0)
-                        pick(false);
-                      if (n == 1)
-                        pick(true);
-                      if (n == 2)
-                        pickFolder();
-                      if (n == 3)
-                        clearQueue();
+                      if (n == 0) { pick(false); }
+                      if (n == 1) { pick(true); }
+                      if (n == 2) { pickFolder(); }
+                      if (n == 3) { clearQueue(); }
                     })
                 .show(),
         40);
     l.addView(heading);
     gap(l, 6);
-    queueTitle = text("Todas as suas músicas e vídeos", 13, muted);
+    queueTitle = text("Sua coleção e as escolhas da sala", 13, muted);
     l.addView(queueTitle);
     gap(l, 17);
     LinearLayout add = row();
@@ -534,8 +411,6 @@ public class MainActivity extends Activity {
     TextView t = text("A mesma frequência.", 24, Ui.TEXT);
     t.setTypeface(Ui.display(this));
     heading.addView(t, new LinearLayout.LayoutParams(0, -2, 1));
-    Ui.SpriteView little = new Ui.SpriteView(this);
-    heading.addView(little, new LinearLayout.LayoutParams(dp(76), dp(76)));
     roomPage.addView(heading);
     TextView desc =
         text("Crie uma sala e mande o link. Quem entrar pode ouvir, assistir e conversar com você.",
@@ -570,6 +445,16 @@ public class MainActivity extends Activity {
     weight(more, button("Entrar por link", false, this::join));
     roomCard.addView(more);
     roomPage.addView(roomCard);
+    gap(roomPage, 20);
+    LinearLayout sourceCard=vertical();sourceCard.setPadding(dp(18),dp(18),dp(18),dp(18));sourceCard.setBackground(Ui.shape(this,panel,20));
+    sourceCard.addView(text("Som de outros apps",19,Ui.TEXT));gap(sourceCard,8);
+    sourceCard.addView(text("Transmita o áudio permitido pelo Android para quem está na sala. O microfone não é utilizado.",13,muted));gap(sourceCard,12);
+    captureLabel=text("Disponível no Android 10 ou superior",12,muted);sourceCard.addView(captureLabel);gap(sourceCard,12);
+    captureButton=button("Transmitir áudio de outro app",true,this::captureFlow);sourceCard.addView(captureButton);roomPage.addView(sourceCard);
+    gap(roomPage,18);
+    roomPage.addView(text("Uma fila feita por todos",20,Ui.TEXT));gap(roomPage,7);
+    roomPage.addView(text("Os convidados podem adicionar links do YouTube Music e enviar músicas do celular. Você controla a reprodução e pode remover faixas na Biblioteca.",13,muted));gap(roomPage,10);
+    roomPage.addView(button("Gerenciar fila da sala",false,()->switchTab(1)));
     gap(roomPage, 18);
     LinearLayout chatTitle = row();
     chatTitle.addView(Ui.label(this, "CONVERSA DA SALA"), new LinearLayout.LayoutParams(0, -2, 1));
@@ -610,26 +495,17 @@ public class MainActivity extends Activity {
     pageViews.add(scroller(roomPage));
   }
   void buildWeb() {
-    webPage = padded();
-    section(webPage, "EXPLORAR");
-    Ui.SpriteView sprite = new Ui.SpriteView(this);
-    webPage.addView(sprite, new LinearLayout.LayoutParams(-1, dp(205)));
-    TextView t = text("O mundo também dá play.", 27, Ui.TEXT);
-    t.setTypeface(Ui.display(this));
-    webPage.addView(t);
-    gap(webPage, 10);
-    TextView desc = text(
-        "Abra sites, descubra rádios e guarde seus favoritos. Tudo no RetroPlayer.", 15, muted);
-    desc.setLineSpacing(dp(5), 1);
-    webPage.addView(desc);
-    gap(webPage, 24);
-    webPage.addView(button("Abrir navegador", true, this::openBrowser));
-    gap(webPage, 12);
-    webPage.addView(button("Abrir um link de áudio ou vídeo", false, this::remote));
-    gap(webPage, 24);
-    webSummary = text("Seu áudio continua quando você minimiza o player.", 13, lime);
-    webSummary.setLineSpacing(dp(4), 1);
-    webPage.addView(webSummary);
+    webPage=padded();gap(webPage,10);
+    webPage.addView(text("Seu próximo favorito.",28,Ui.TEXT));gap(webPage,8);
+    webPage.addView(text("Descubra músicas e leve suas escolhas para a sala.",14,muted));gap(webPage,24);
+    LinearLayout card=vertical();card.setPadding(dp(22),dp(24),dp(22),dp(24));card.setBackground(Ui.shape(this,panel,22));
+    card.addView(Ui.label(this,"CATÁLOGO ONLINE"));gap(card,14);card.addView(text("YouTube Music",26,Ui.TEXT));gap(card,8);
+    card.addView(text("Pesquise artistas, álbuns e músicas. Adicione um link à fila para ouvir com seus convidados.",14,muted));gap(card,20);
+    card.addView(button("Buscar música",true,this::searchMusic));gap(card,10);
+    card.addView(button("Abrir YouTube Music",false,()->music("https://music.youtube.com/")));webPage.addView(card);
+    gap(webPage,16);webPage.addView(button("Adicionar link à fila",false,this::remote));gap(webPage,10);
+    webPage.addView(button("Navegador e favoritos",false,this::openBrowser));gap(webPage,24);
+    webSummary=text("Arquivos locais continuam tocando em segundo plano.",13,muted);webPage.addView(webSummary);
     pageViews.add(scroller(webPage));
   }
   void switchTab(int n) {
@@ -658,16 +534,14 @@ public class MainActivity extends Activity {
     new AlertDialog.Builder(this)
         .setTitle("Adicionar à reprodução")
         .setItems(new String[] {"Selecionar um arquivo", "Selecionar vários arquivos",
-                      "Escolher uma pasta e subpastas", "Abrir link de mídia"},
+                      "Escolher uma pasta e subpastas", "Abrir link de mídia / YouTube Music", "YouTube Music"},
             (d, n) -> {
-              if (n == 0)
-                pick(false);
-              if (n == 1)
-                pick(true);
-              if (n == 2)
-                pickFolder();
-              if (n == 3)
-                remote();
+              if (n == 0) { pick(false); }
+              if (n == 1) { pick(true); }
+              if (n == 2) { pickFolder(); }
+              if (n == 3) { remote(); }
+              if (n == 4)
+                music("https://music.youtube.com/");
             })
         .show();
   }
@@ -677,17 +551,13 @@ public class MainActivity extends Activity {
         .setItems(new String[] {"Adicionar mídia", "Equalizador", "Navegador e favoritos",
                       "Limpar lista de reprodução", "Sobre o RetroPlayer"},
             (d, n) -> {
-              if (n == 0)
-                addMenu();
-              if (n == 1)
-                equalizer();
-              if (n == 2)
-                openBrowser();
-              if (n == 3)
-                clearQueue();
+              if (n == 0) { addMenu(); }
+              if (n == 1) { equalizer(); }
+              if (n == 2) { openBrowser(); }
+              if (n == 3) { clearQueue(); }
               if (n == 4)
                 new AlertDialog.Builder(this)
-                    .setTitle("RetroPlayer 1.2")
+                    .setTitle("RetroPlayer 2.0")
                     .setMessage(
                         "Música, vídeo e companhia.\n\nPlayer nativo para Android com pastas, "
                         + "favoritos, áudio em segundo plano, salas por link e chat.\n\nA "
@@ -726,6 +596,10 @@ public class MainActivity extends Activity {
     service = PlayerService.instance;
     if (service == null) {
       toast("O player está reiniciando. Tente novamente.");
+      return;
+    }
+    if(request==30){
+      if(Build.VERSION.SDK_INT>=29&&service.room)startForegroundService(new Intent(this,CaptureService.class).putExtra("grant",data));
       return;
     }
     if (request == 8 && data.getData() != null) {
@@ -776,6 +650,76 @@ public class MainActivity extends Activity {
     } else
       toast("Aguarde a sala ficar online.");
   }
+  void currentMusic(){
+    if(service!=null&&service.browser!=null&&!service.browser.guestUrl.isEmpty()){openBrowser();return;}
+    if(service!=null&&service.index>=0&&!YouTubeLink.id(service.tracks.get(service.index).uri.toString()).isEmpty())music(service.tracks.get(service.index).uri.toString());
+    else music("https://music.youtube.com/");
+  }
+  void music(String url) {
+    startActivity(new Intent(this, BrowserActivity.class).putExtra("url", url));
+  }
+  void searchMusic() {
+    EditText input = new EditText(this);
+    input.setSingleLine(); input.setHint("Música, artista ou álbum");
+    new AlertDialog.Builder(this).setTitle("Buscar no YouTube Music").setView(input)
+        .setNegativeButton("Cancelar", null).setPositiveButton("Buscar", (d,w) -> {
+          String q = input.getText().toString().trim();
+          if (!q.isEmpty()) music("https://music.youtube.com/search?q=" + Uri.encode(q));
+        }).show();
+  }
+  void lyricsMenu() {
+    if (service == null || service.currentKey().isEmpty()) { toast("Abra uma faixa primeiro."); return; }
+    service.prepareLyrics(service.currentKey());
+    new AlertDialog.Builder(this).setTitle("Letras da música")
+        .setItems(new String[]{"Ver letra completa", "Buscar no LRCLIB", "Colar letra / LRC", "Adiantar letra 0,5 s", "Atrasar letra 0,5 s", "Apagar letra salva"}, (d,n) -> {
+          if (n == 0) showLyrics();
+          if (n == 1) findLyrics();
+          if (n == 2) {
+            EditText input = new EditText(this); input.setMinLines(6); input.setMaxLines(14);
+            input.setHint("[00:12.50] Primeira linha…");
+            final String key = service.lyricsKey;
+            new AlertDialog.Builder(this).setTitle("Letra ou LRC").setView(input).setNegativeButton("Cancelar",null)
+                .setPositiveButton("Salvar",(dialog,w) -> {
+                  if (!key.equals(service.currentKey())) { toast("A faixa mudou. Abra as opções novamente."); return; }
+                  String source = input.getText().toString();
+                  if (source.length() > 60000) { toast("Use uma letra de até 60 mil caracteres."); return; }
+                  service.setLyrics(source);
+                }).show();
+          }
+          if (n == 3) service.offsetLyrics(500);
+          if (n == 4) service.offsetLyrics(-500);
+          if (n == 5) service.setLyrics("");
+        }).show();
+  }
+  void findLyrics() {
+    final String key = service.lyricsKey;
+    String name = Lyrics.clean(service.browser != null && service.browser.active ? service.browser.pageTitle : service.tracks.get(service.index).name);
+    String[] parts = name.split(" [-–—] ", 2);
+    LinearLayout form = padded();
+    EditText song = new EditText(this), singer = new EditText(this);
+    song.setSingleLine(); singer.setSingleLine(); song.setHint("Título da música"); singer.setHint("Artista");
+    song.setText(parts.length == 2 ? parts[1] : name); if (parts.length == 2) singer.setText(parts[0]);
+    form.addView(song); form.addView(singer);
+    new AlertDialog.Builder(this).setTitle("Buscar letra • LRCLIB").setView(form).setNegativeButton("Cancelar", null)
+        .setPositiveButton("Buscar", (d,w) -> {
+          if (!key.equals(service.currentKey())) { toast("A faixa mudou. Tente novamente."); return; }
+          if (song.getText().toString().trim().isEmpty() || singer.getText().toString().trim().isEmpty()) { toast("Preencha título e artista."); return; }
+          try { service.findLyrics(song.getText().toString().trim(), singer.getText().toString().trim(), new JSONObject(service.state).optDouble("duration")); } catch (Exception ignored) {}
+        }).show();
+  }
+  void showLyrics() {
+    final Lyrics doc = service.lyrics;
+    final String key = service.lyricsKey;
+    LinearLayout content = padded();
+    if (doc.lines.isEmpty()) content.addView(text(doc.plain.isEmpty() ? "Nenhuma letra salva. Use Buscar ou Colar LRC." : doc.plain, 20, Ui.TEXT));
+    for (Lyrics.Line line : doc.lines) {
+      TextView t = text(line.text.isEmpty() ? "♪" : line.text, 21, Ui.TEXT);
+      t.setPadding(0,dp(12),0,dp(12));
+      t.setOnClickListener(v -> { if (key.equals(service.currentKey())) service.controlSeek((int)Math.max(0,line.time - service.lyricsOffset)); });
+      content.addView(t);
+    }
+    new AlertDialog.Builder(this).setTitle("Letra • toque em uma linha para avançar").setView(scroller(content)).setPositiveButton("Fechar",null).show();
+  }
   void openBrowser() {
     startActivity(new Intent(this, BrowserActivity.class));
   }
@@ -785,11 +729,11 @@ public class MainActivity extends Activity {
     input.setInputType(
         android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
     new AlertDialog.Builder(this)
-        .setTitle("Abrir mídia da internet")
-        .setMessage("Cole um link HTTPS direto de áudio ou vídeo.")
+        .setTitle("Adicionar música por link")
+        .setMessage("Cole um link de áudio, vídeo, YouTube ou YouTube Music.")
         .setView(input)
         .setNegativeButton("Cancelar", null)
-        .setPositiveButton("Tocar",
+        .setPositiveButton("Adicionar",
             (d, w) -> {
               Uri u = Uri.parse(input.getText().toString().trim());
               if (!"https".equals(u.getScheme()) || u.getHost() == null
@@ -798,8 +742,12 @@ public class MainActivity extends Activity {
                 return;
               }
               if (service != null) {
-                service.addRemote(u.toString());
-                switchTab(0);
+                if(service.enqueueRoomLink(u.toString(),"",nickname,service.token)){toast("Adicionado à fila.");switchTab(1);}
+                else if(!service.room){
+                  if(!YouTubeLink.id(u.toString()).isEmpty())service.addRemote(u.toString());
+                  else service.addWebMedia(u.toString(),null,null,0);
+                  switchTab(0);
+                }else toast("Use um link direto de mídia ou YouTube Music.");
               }
             })
         .show();
@@ -853,7 +801,7 @@ public class MainActivity extends Activity {
       String origin = "https".equals(track.uri.getScheme()) ? "Internet"
           : track.mime.startsWith("video/")                   ? "Vídeo"
                                                               : "Áudio";
-      info.setText(origin + "  •  " + String.format(Locale.getDefault(), "%02d", at + 1));
+      info.setText((!YouTubeLink.id(track.uri.toString()).isEmpty()?"YouTube Music":origin)+" • "+track.author);
       item.setBackground(Ui.shape(MainActivity.this, current ? Ui.PANEL : bg, 8));
       ((ImageView) item.getChildAt(0))
           .setImageDrawable(new Ui.Glyph(current    ? "headphones"
@@ -887,31 +835,51 @@ public class MainActivity extends Activity {
         Intent.EXTRA_TEXT, "Ouça comigo no RetroPlayer! Música, vídeo e chat: " + service.url);
     startActivity(Intent.createChooser(i, "Convidar para a sala"));
   }
+  void captureFlow() {
+    service=PlayerService.instance;
+    if(service==null)return;
+    if(service.capture!=null&&service.capture.running){service.stopCapture();return;}
+    if(Build.VERSION.SDK_INT<29){toast("A captura de outros apps exige Android 10 ou superior.");return;}
+    if(!service.room){toast("Crie uma sala antes de transmitir.");return;}
+    new AlertDialog.Builder(this).setTitle("Transmitir o som do dispositivo")
+        .setMessage("O Android vai pedir autorização para compartilhar áudio. Depois, abra o aplicativo que deseja ouvir.\n\nAlguns apps bloqueiam a captura e enviam silêncio. Não capturamos o microfone. Até 4 convidados podem ouvir esta fonte ao mesmo tempo. A transmissão estéreo usa cerca de 11 MB por minuto por ouvinte.")
+        .setNegativeButton("Cancelar",null).setPositiveButton("Continuar",(d,w)->requestCapture()).show();
+  }
+  void requestCapture() {
+    if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+      requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, 31);
+      return;
+    }
+    if (Build.VERSION.SDK_INT >= 29) {
+      startActivityForResult(getSystemService(MediaProjectionManager.class).createScreenCaptureIntent(), 30);
+    }
+  }
+  @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){
+    super.onRequestPermissionsResult(request,permissions,results);
+    if(request==31){if(results.length>0&&results[0]==PackageManager.PERMISSION_GRANTED)requestCapture();else toast("O Android exige permissão de áudio para capturar a reprodução.");}
+  }
+  void openGuest(String raw){
+    String url=RoomLink.parse(raw);
+    if(url.isEmpty()){toast("Use um link válido de sala RetroPlayer.");return;}
+    Runnable enter=()->startActivity(new Intent(this,BrowserActivity.class).putExtra("url",url).putExtra("room",true));
+    PlayerService owner=PlayerService.instance;
+    if(owner!=null&&owner.room){
+      if(url.equals(owner.url)){toast("Você é o anfitrião desta sala. Envie o convite para outro aparelho.");return;}
+      new AlertDialog.Builder(this).setTitle("Entrar em outra sala?").setMessage("Sua sala atual será encerrada e os convidados perderão o acesso.")
+          .setNegativeButton("Cancelar",null).setPositiveButton("Entrar",(d,w)->{owner.closeRoom();enter.run();}).show();
+    }else enter.run();
+  }
+  void handleInvite(Intent intent){
+    if(intent==null)return;
+    String value=intent.getDataString();
+    if(Intent.ACTION_SEND.equals(intent.getAction()))value=intent.getStringExtra(Intent.EXTRA_TEXT);
+    if(value!=null&&!RoomLink.parse(value).isEmpty())openGuest(value);
+  }
+  @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);handleInvite(intent);}
   void join() {
-    EditText e = new EditText(this);
-    e.setHint("https://…trycloudflare.com/…/");
-    e.setInputType(
-        android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
-    new AlertDialog.Builder(this)
-        .setTitle("Entrar em uma sala")
-        .setMessage("Cole o link recebido. A sala abre no navegador.")
-        .setView(e)
-        .setNegativeButton("Cancelar", null)
-        .setPositiveButton("Entrar",
-            (d, w) -> {
-              String url = e.getText().toString().trim();
-              Uri u = Uri.parse(url);
-              if (!"https".equals(u.getScheme()) || u.getHost() == null) {
-                toast("Use um link HTTPS válido.");
-                return;
-              }
-              try {
-                startActivity(new Intent(Intent.ACTION_VIEW, u));
-              } catch (Exception ex) {
-                toast("Nenhum navegador disponível.");
-              }
-            })
-        .show();
+    EditText input=new EditText(this);input.setSingleLine();input.setHint("Cole o convite recebido");
+    new AlertDialog.Builder(this).setTitle("Entrar em uma sala").setMessage("Ouça e adicione músicas à fila sem sair do RetroPlayer.")
+        .setView(input).setNegativeButton("Cancelar",null).setPositiveButton("Entrar",(d,w)->openGuest(input.getText().toString())).show();
   }
   void name() {
     EditText e = new EditText(this);
@@ -989,17 +957,27 @@ public class MainActivity extends Activity {
       if (service != null) {
         try {
           JSONObject s = new JSONObject(service.state);
+          boolean webSource = service.browser != null && service.browser.active;
           boolean has = service.index >= 0;
-          String name = has ? service.tracks.get(service.index).name : "PRONTO PARA O PLAY";
-          title.setText(name);
+          String name = has ? service.tracks.get(service.index).name : "Encontre seu próximo play";
+          boolean live=s.optBoolean("live");
+          title.setText(live?"Som do dispositivo":webSource ? service.browser.pageTitle : name);
           artist.setText(has ? ("https".equals(service.tracks.get(service.index).uri.getScheme())
                                        ? "Streaming da internet"
                                        : "Sua biblioteca • " + (service.index + 1) + " de "
                                            + service.tracks.size())
                              : "Adicione uma música, um vídeo ou uma pasta");
+          if (webSource) artist.setText(s.optString("youtubeId").isEmpty() ? "Navegador • áudio local" : "YouTube Music • ouvir junto");
+          boolean guest=service.browser!=null&&!service.browser.guestUrl.isEmpty();
+          if(webSource&&guest)artist.setText("Convidado • sala compartilhada");
+          sourceButton.setText(guest?"Voltar à sala compartilhada":"Abrir YouTube Music");
+          if(live)artist.setText(service.captureStatus);
+          captureLabel.setText(service.captureStatus);captureButton.setText(live?"Parar transmissão":"Transmitir áudio de outro app");
+          lyricLine.setText(s.optString("lyric", "").isEmpty() ? "A letra acompanha seu play." : s.optString("lyric"));
+          lyricNext.setText(s.optString("lyricNext"));
+          lyricStatus.setText(s.optString("lyricsStatus") + " • ajuste " + (service.lyricsOffset / 1000.0) + " s");
           boolean playing = s.optBoolean("playing");
-          headerSubtitle.setText(
-              service.room ? "CYBRDECK // SALA ABERTA" : "CYBRDECK // OPERADOR LOCAL");
+          headerSubtitle.setText(service.room?"Sua sala está aberta":"Música fica melhor com companhia");
           int pos = (int) (s.optDouble("position") * 1000),
               duration = (int) (s.optDouble("duration") * 1000);
           if (!dragging) {
@@ -1007,23 +985,18 @@ public class MainActivity extends Activity {
             progress.setMax(duration);
             progress.setProgress(pos);
           }
-          trace.update(duration > 0 ? (float) pos / duration : 0);
-          playbackState.setText((playing      ? "REPRODUZINDO"
-                                        : has ? "PAUSADO"
-                                              : "AGUARDANDO")
-              + " // "
-              + (duration > 0 ? Math.min(100, (int) (100L * pos / duration)) + "% REPRODUZIDO"
-                              : "CANAL DE ÁUDIO"));
-          progress.setEnabled(duration > 0 && service.ready);
-          total.setText(duration > 0 ? clock(duration / 1000) : has ? "AO VIVO" : "0:00");
+          if(trace!=null)trace.update(duration > 0 ? (float) pos / duration : 0);
+          playbackState.setText(live?"Transmissão ao vivo • toque em pausar para encerrar":playing?"Reproduzindo":has?"Pausado":"Adicione uma música para começar");
+          progress.setEnabled(!live&&duration > 0 && (service.ready || webSource));
+          total.setText(duration > 0 ? clock(duration / 1000) : live ? "AO VIVO" : has ? "AO VIVO" : "0:00");
           play.setImageDrawable(new Ui.Glyph(playing ? "pause" : "play", bg));
-          boolean isVideo = has
+          boolean isVideo = !live && !webSource && has && !service.tracks.get(service.index).mime.equals("video/youtube")
               && (service.tracks.get(service.index).mime.startsWith("video/")
                   || (service.ready && service.player.getVideoHeight() > 0));
           video.setVisibility(isVideo ? View.VISIBLE : View.GONE);
           artwork.setVisibility(View.VISIBLE);
           artFrame.setVisibility(isVideo ? View.VISIBLE : View.GONE);
-          meta.setText(isVideo ? "VÍDEO" : "ESTÉREO");
+          meta.setText(live?"AO VIVO":webSource?"YouTube Music":isVideo?"Vídeo":"Sua biblioteca");
           if (isVideo && service.ready) {
             int vw = service.player.getVideoWidth(), vh = service.player.getVideoHeight();
             if (vw > 0 && vh > 0) {
@@ -1040,10 +1013,10 @@ public class MainActivity extends Activity {
             }
           }
           boolean webActive = service.browser != null && service.browser.active;
-          miniTitle.setText(webActive ? service.browser.pageTitle
+          miniTitle.setText(live?"Som do dispositivo":webActive ? service.browser.pageTitle
                   : has               ? name
                                       : "Sua música está aqui");
-          miniSubtitle.setText(webActive ? "Navegador • segundo plano"
+          miniSubtitle.setText(live?"Transmissão para a sala":webActive ? "Navegador • segundo plano"
                   : has                  ? "Toque para abrir o player"
                                          : "Escolha um arquivo ou uma pasta");
           miniPlay.setImageDrawable(new Ui.Glyph(

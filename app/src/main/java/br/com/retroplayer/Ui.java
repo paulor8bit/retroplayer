@@ -7,25 +7,18 @@ import android.view.*;
 import android.widget.*;
 
 final class Ui {
-  static final int BG = 0xff201617, PANEL = 0xff3d2729, RAISED = 0xff492e30, LINE = 0xff6b494b,
-                   TEXT = 0xff98e3e6, MUTED = 0xffc6a19c, LIME = 0xff98e3e6, ORANGE = 0xffe75c50;
+  static final int BG = 0xff0b111b, PANEL = 0xff141e2c, RAISED = 0xff1e2b3d, LINE = 0xff29384e,
+                   TEXT = 0xfff2f5fb, MUTED = 0xff9aa9bd, LIME = 0xff8cbcff, ORANGE = 0xff8cbcff;
   static Typeface monoFont, displayFont;
-  static Typeface mono(Context c) {
-    if (monoFont == null)
-      monoFont = Typeface.createFromAsset(c.getApplicationContext().getAssets(), "theme/mono.ttf");
-    return monoFont;
-  }
-  static Typeface display(Context c) {
-    if (displayFont == null)
-      displayFont =
-          Typeface.createFromAsset(c.getApplicationContext().getAssets(), "theme/display.ttf");
-    return displayFont;
-  }
+  static Typeface mono(Context c) { return Typeface.create("sans-serif",Typeface.NORMAL); }
+  static Typeface display(Context c) { return Typeface.create("sans-serif-medium",Typeface.NORMAL); }
   static int dp(Context c, float n) {
     return (int) (n * c.getResources().getDisplayMetrics().density + .5f);
   }
   static GradientDrawable shape(Context c, int color, int radius) {
-    GradientDrawable d = new DeckDrawable(c, color, Math.min(10, Math.max(4, radius / 2)));
+    GradientDrawable d = new GradientDrawable();
+    d.setColor(color);
+    d.setCornerRadius(dp(c, Math.max(12, radius)));
     return d;
   }
   static android.graphics.drawable.Drawable ripple(Context c, int color, int radius) {
@@ -43,7 +36,7 @@ final class Ui {
   }
   static TextView label(Context c, String s) {
     TextView t = text(c, s, 11, MUTED);
-    t.setLetterSpacing(.13f);
+    t.setLetterSpacing(.08f);
     t.setTypeface(mono(c));
     return t;
   }
@@ -62,11 +55,11 @@ final class Ui {
   }
   static Button button(Context c, String s, boolean primary, Runnable action) {
     Button b = new Button(c);
-    b.setAllCaps(true);
+    b.setAllCaps(false);
     b.setText(s);
-    b.setTextSize(17);
+    b.setTextSize(14);
     b.setTypeface(display(c));
-    b.setLetterSpacing(.06f);
+    b.setLetterSpacing(0);
     b.setTextColor(primary ? BG : TEXT);
     b.setBackground(ripple(c, primary ? ORANGE : PANEL, 14));
     b.setMinHeight(dp(c, 48));

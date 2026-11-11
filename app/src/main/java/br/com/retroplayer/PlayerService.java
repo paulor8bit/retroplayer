@@ -14,6 +14,113 @@ import org.json.*;
 
 public class PlayerService extends Service {
   public static PlayerService instance;
+  volatile PcmBroadcast capture;
+  volatile String captureStatus = "Captura desativada";
+  volatile String sharedQueue = "[]";
+  long sharedVersion=-1;
+  int sharedIndex=-2;
+  RoomUploads uploads;
+  void stopCapture() {
+    if(capture!=null){capture.close();capture=null;captureStatus="Captura encerrada";}
+    if(Build.VERSION.SDK_INT>=29)stopService(new Intent(this, CaptureService.class));
+  }
+  void refreshSharedQueue() {
+    if(sharedVersion==tracksVersion&&sharedIndex==index)return;
+    try {
+      JSONArray list = new JSONArray();
+      for (int i = 0; i < tracks.size(); i++) {
+        Track t = tracks.get(i);
+        list.put(new JSONObject().put("name", t.name).put("author", t.author).put("index", i)
+            .put("current", i == index).put("source", !YouTubeLink.id(t.uri.toString()).isEmpty() ? "YouTube Music" : "https".equals(t.uri.getScheme()) ? "Link" : "Arquivo"));
+      }
+      sharedQueue = list.toString();sharedVersion=tracksVersion;sharedIndex=index;
+    } catch (Exception ignored) {}
+  }
+  boolean enqueueRoomLink(String link, String title, String author, String roomToken) {
+    String valid = RoomLink.media(link);
+    if (valid.isEmpty() || !room || !token.equals(roomToken)) return false;
+    main.post(() -> {
+      if (instance != this || !room || !token.equals(roomToken)) return;
+      if (tracks.size() >= 200) { error = "Fila cheia. Remova uma faixa para receber novas músicas."; return; }
+      Uri uri = Uri.parse(valid);
+      String id = YouTubeLink.id(valid);
+      String name = title.trim();
+      if (name.isEmpty()) name = id.isEmpty() ? uri.getLastPathSegment() : "YouTube • " + id;
+      Track track = new Track(uri, name.substring(0, Math.min(160, name.length())), id.isEmpty() ? guessMime(uri.getPath()) : "video/youtube", -1);
+      track.author = author.substring(0, Math.min(24, author.length()));
+      if (appendTracks(Collections.singletonList(track), false) > 0) chat("Sala", track.author + " adicionou: " + track.name);
+    });
+    return true;
+  }
+  void acceptUpload(File file, String name, String author, String roomToken) {
+    main.post(() -> {
+      if (instance != this || !room || !token.equals(roomToken) || tracks.size() >= 200) { file.delete(); return; }
+      Track track = new Track(Uri.fromFile(file), name, guessMime(name), file.length());
+      track.author = author.substring(0, Math.min(24, author.length()));
+      appendTracks(Collections.singletonList(track), false);
+      chat("Sala", track.author + " enviou: " + name);
+    });
+  }
+  void deleteUpload(Track track) {
+    if (!"file".equals(track.uri.getScheme()) || uploads == null) return;
+    File file = new File(track.uri.getPath());
+    if (uploads.owns(file)) file.delete();
+  }
+  Lyrics lyrics = new Lyrics("");
+  String lyricsKey = "", lyricsStatus = "Escolha uma faixa para ver a letra";
+  long lyricsRequest = 0;
+  int lyricsOffset = 0;
+  final java.util.concurrent.ExecutorService lyricsWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
+  String currentKey() {
+    if (capture != null && capture.running) return "";
+    if (browser != null && browser.active) {
+      String id = YouTubeLink.id(browser.pageUrl);
+      return id.isEmpty() ? "" : "youtube:" + id;
+    }
+    return index >= 0 ? tracks.get(index).uri.toString() : "";
+  }
+  void prepareLyrics(String key) {
+    if (key.equals(lyricsKey)) return;
+    lyricsKey = key;
+    lyricsRequest++;
+    android.content.SharedPreferences prefs = getSharedPreferences("lyrics", 0);
+    lyrics = new Lyrics(prefs.getString(key, ""));
+    lyricsOffset = prefs.getInt(key + ":offset", 0);
+    lyricsStatus = key.isEmpty() ? "Escolha uma faixa para ver a letra" : "Busque a letra ou cole um arquivo LRC";
+  }
+  void setLyrics(String source) {
+    lyricsRequest++;
+    lyrics = new Lyrics(source);
+    getSharedPreferences("lyrics", 0).edit().putString(lyricsKey, source).apply();
+    lyricsStatus = source.isEmpty() ? "Nenhuma letra salva. Busque ou cole LRC." : lyrics.lines.isEmpty() ? "Letra sem sincronia" : "Letra sincronizada • LRC";
+    snapshot();
+  }
+  void findLyrics(String title, String artist, double duration) {
+    String key = lyricsKey;
+    long request = ++lyricsRequest;
+    lyricsStatus = "Buscando no LRCLIB…";
+    lyricsWorker.execute(() -> {
+      try {
+        String source = Lyrics.fetch(title, artist, duration);
+        main.post(() -> {
+          if (instance != this || !key.equals(lyricsKey) || request != lyricsRequest) return;
+          if (source.isEmpty()) lyricsStatus = "Letra não encontrada. Confira título e artista ou cole LRC.";
+          else { setLyrics(source); lyricsStatus += " • LRCLIB"; }
+        });
+      } catch (Exception e) {
+        main.post(() -> { if (instance == this && key.equals(lyricsKey) && request == lyricsRequest) lyricsStatus = "Falha ao buscar letra. Tente novamente."; });
+      }
+    });
+  }
+  void offsetLyrics(int delta) {
+    lyricsOffset = Math.max(-30000, Math.min(30000, lyricsOffset + delta));
+    getSharedPreferences("lyrics", 0).edit().putInt(lyricsKey + ":offset", lyricsOffset).apply();
+    snapshot();
+  }
+  public void controlSeek(int ms) {
+    if (capture != null && capture.running) return;
+    if (browser != null && browser.active) browser.seekMedia(ms); else seek(ms);
+  }
   public final ArrayList<Track> tracks = new ArrayList<>();
   public final ArrayList<JSONObject> messages = new ArrayList<>();
   public volatile String state = "{}", url = "", tunnelStatus = "Sala fechada", error = "";
@@ -36,6 +143,7 @@ public class PlayerService extends Service {
     return browser;
   }
   public void controlToggle() {
+    if (capture != null && capture.running) { stopCapture(); return; }
     if (browser != null && browser.active) {
       if (browser.playing)
         browser.pauseMedia();
@@ -46,12 +154,17 @@ public class PlayerService extends Service {
       toggle();
   }
   public void controlPlay() {
-    if (browser != null && browser.active)
-      browser.playMedia();
-    else
-      play();
+    if (capture != null && capture.running) return;
+    if (!ready && index >= 0 && (browser == null || !browser.active)
+        && !YouTubeLink.id(tracks.get(index).uri.toString()).isEmpty()) {
+      browser().playQueued(tracks.get(index).uri.toString());
+      return;
+    }
+    if (browser != null && browser.active) { browser.playMedia(); }
+    else { play(); }
   }
   public void controlPause() {
+    if (capture != null && capture.running) stopCapture();
     if (browser != null && browser.active)
       browser.pauseMedia();
     pause();
@@ -80,6 +193,7 @@ public class PlayerService extends Service {
   public static class Track {
     public Uri uri;
     public String name, mime;
+    String author = "Anfitrião";
     public long size;
     Map<String, String> headers;
     int startPosition = 0;
@@ -102,7 +216,7 @@ public class PlayerService extends Service {
             options.inSampleSize = 2;
             options.inScaled = false;
             android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeResource(
-                getResources(), R.drawable.deck_cover, options);
+                getResources(), R.drawable.album_art, options);
             if (bitmap == null)
               throw new IOException("Capa indisponível");
             try {
@@ -125,6 +239,7 @@ public class PlayerService extends Service {
   public void onCreate() {
     super.onCreate();
     instance = this;
+    uploads = new RoomUploads(new File(getFilesDir(), "room-uploads"));
     NotificationManager nm = getSystemService(NotificationManager.class);
     nm.createNotificationChannel(
         new NotificationChannel("player", "Reprodução e sala", NotificationManager.IMPORTANCE_LOW));
@@ -237,24 +352,37 @@ public class PlayerService extends Service {
       boolean playing = ready && player != null && player.isPlaying();
       int pos = ready ? player.getCurrentPosition() : 0;
       int duration = ready ? player.getDuration() : 0;
-      JSONObject s =
-          new JSONObject()
-              .put("title", index >= 0 ? tracks.get(index).name : "Selecione sua música ou vídeo")
-              .put("id", generation)
-              .put("playing", playing)
-              .put("position", pos / 1000.0)
-              .put("duration", Math.max(0, duration) / 1000.0)
-              .put("serverTime", System.currentTimeMillis())
-              .put("hasMedia", index >= 0 && ready)
-              .put("mime", index >= 0 ? tracks.get(index).mime : "")
-              .put("room", room);
-      state = s.toString();
-      if (browser != null && browser.active) {
+      boolean live = capture != null && capture.running;
+      boolean webActive = !live && browser != null && browser.active;
+      String youtubeId = webActive ? YouTubeLink.id(browser.pageUrl) : "";
+      if (webActive) {
         playing = browser.playing;
         pos = (int) (browser.position * 1000);
         duration = (int) (browser.duration * 1000);
       }
-      String currentTitle = browser != null && browser.active ? browser.pageTitle
+      if (live) { playing = true; pos = 0; duration = 0; }
+      prepareLyrics(currentKey());
+      refreshSharedQueue();
+      int line = lyrics.at(pos + lyricsOffset);
+      JSONObject s =
+          new JSONObject()
+              .put("title", live ? "Som do dispositivo" : webActive ? browser.pageTitle : index >= 0 ? tracks.get(index).name : "Selecione sua música ou vídeo")
+              .put("id", live ? "live:" + capture.id : webActive ? "youtube:" + youtubeId : String.valueOf(generation))
+              .put("youtubeId", youtubeId)
+              .put("live", live).put("captureStatus", captureStatus)
+              .put("sampleRate", PcmBroadcast.SAMPLE_RATE).put("channels", PcmBroadcast.CHANNELS)
+              .put("lyricsStatus", lyricsStatus)
+              .put("lyric", line >= 0 ? lyrics.lines.get(line).text : lyrics.plain)
+              .put("lyricNext", line + 1 < lyrics.lines.size() ? lyrics.lines.get(line + 1).text : "")
+              .put("playing", playing)
+              .put("position", pos / 1000.0)
+              .put("duration", Math.max(0, duration) / 1000.0)
+              .put("serverTime", System.currentTimeMillis())
+              .put("hasMedia", live || (webActive ? !youtubeId.isEmpty() : index >= 0 && ready))
+              .put("mime", index >= 0 ? tracks.get(index).mime : "")
+              .put("room", room);
+      state = s.toString();
+      String currentTitle = live ? "Som do dispositivo" : browser != null && browser.active ? browser.pageTitle
           : index >= 0                                        ? tracks.get(index).name
                                                               : "RetroPlayer";
       if (!currentTitle.equals(metadataTitle)) {
@@ -301,6 +429,7 @@ public class PlayerService extends Service {
       return "video/x-matroska";
     if (n.endsWith(".m3u8"))
       return "application/vnd.apple.mpegurl";
+    if (n.endsWith(".aac")) return "audio/aac";
     if (n.endsWith(".flac"))
       return "audio/flac";
     if (n.endsWith(".ogg") || n.endsWith(".opus"))
@@ -340,7 +469,7 @@ public class PlayerService extends Service {
     if (count > 0) {
       tracksVersion++;
       saveQueue();
-      if (index < 0)
+      if (index < 0 && (capture==null || !capture.running))
         select(0, autoplay);
     }
     return count;
@@ -363,8 +492,7 @@ public class PlayerService extends Service {
                 : e.mime,
             e.size));
       main.post(() -> {
-        if (instance != this)
-          return;
+        if (instance != this) { return; }
         int count = r.cancelled ? 0 : appendTracks(added, true);
         importing = false;
         importStatus = r.cancelled ? "Importação cancelada"
@@ -374,6 +502,15 @@ public class PlayerService extends Service {
     });
   }
   public void addRemote(String link) {
+    String id = YouTubeLink.id(link);
+    if (!id.isEmpty()) {
+      Uri uri = Uri.parse("https://music.youtube.com/watch?v=" + id);
+      int at = -1;
+      for (int i = 0; i < tracks.size(); i++) if (tracks.get(i).uri.equals(uri)) at = i;
+      if (at < 0) { tracks.add(new Track(uri, "YouTube • " + id, "video/youtube", -1)); at = tracks.size() - 1; tracksVersion++; saveQueue(); }
+      select(at);
+      return;
+    }
     addWebMedia(link, null, null, 0);
   }
   public void addWebMedia(String link, String title, Map<String, String> headers, int position) {
@@ -410,6 +547,7 @@ public class PlayerService extends Service {
     }
   }
   void saveQueue() {
+    refreshSharedQueue();
     try {
       JSONArray items = new JSONArray();
       for (Track t : tracks)
@@ -417,7 +555,7 @@ public class PlayerService extends Service {
                 .put("uri", t.uri.toString())
                 .put("name", t.name)
                 .put("mime", t.mime)
-                .put("size", t.size));
+                .put("size", t.size).put("author", t.author));
       getSharedPreferences("queue", 0)
           .edit()
           .putString("items", items.toString())
@@ -438,8 +576,10 @@ public class PlayerService extends Service {
           JSONArray a = new JSONArray(prefs.getString("items", "[]"));
           for (int i = 0; i < a.length(); i++) {
             JSONObject j = a.getJSONObject(i);
-            result.add(new Track(Uri.parse(j.getString("uri")), j.getString("name"),
-                j.getString("mime"), j.optLong("size", -1)));
+            Track track = new Track(Uri.parse(j.getString("uri")), j.getString("name"),
+                j.getString("mime"), j.optLong("size", -1));
+            track.author = j.optString("author", "Anfitrião");
+            result.add(track);
           }
         } else {
           JSONArray a = new JSONArray(prefs.getString("uris", "[]"));
@@ -459,8 +599,7 @@ public class PlayerService extends Service {
       } catch (Exception ignored) {
       }
       main.post(() -> {
-        if (instance != this)
-          return;
+        if (instance != this) { return; }
         restoring = false;
         restored = true;
         appendTracks(result, false);
@@ -475,15 +614,16 @@ public class PlayerService extends Service {
       return;
     }
     boolean current = at == index;
-    tracks.remove(at);
+    Track removed = tracks.remove(at);
+    deleteUpload(removed);
     tracksVersion++;
-    if (at < index)
-      index--;
+    if (at < index) { index--; }
     if (current)
       select(Math.min(at, tracks.size() - 1));
     saveQueue();
   }
   public void clearQueue() {
+    if(browser!=null){browser.pauseMedia();browser.active=false;browser.queueId="";}
     if (importing)
       cancelImport.set(true);
     ready = false;
@@ -495,6 +635,7 @@ public class PlayerService extends Service {
       player.release();
       player = null;
     }
+    for (Track track : tracks) deleteUpload(track);
     tracks.clear();
     index = -1;
     generation++;
@@ -509,6 +650,8 @@ public class PlayerService extends Service {
   public void select(int n, boolean autoplay) {
     if (n < 0 || n >= tracks.size())
       return;
+    stopCapture();
+    if (browser != null) { browser.pauseMedia(); browser.active = false; browser.queueId = ""; }
     ready = false;
     index = n;
     generation++;
@@ -519,6 +662,12 @@ public class PlayerService extends Service {
     }
     if (player != null)
       player.release();
+    player = null;
+    Track chosen = tracks.get(n);
+    if (!YouTubeLink.id(chosen.uri.toString()).isEmpty()) {
+      if (autoplay) browser().playQueued(chosen.uri.toString());
+      snapshot(); notifyNow(); return;
+    }
     player = new MediaPlayer();
     try {
       player.setAudioAttributes(new AudioAttributes.Builder()
@@ -526,7 +675,6 @@ public class PlayerService extends Service {
               .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
               .build());
       player.setWakeMode(this, PowerManager.PARTIAL_WAKE_LOCK);
-      Track chosen = tracks.get(n);
       if (chosen.headers != null)
         player.setDataSource(this, chosen.uri, chosen.headers);
       else
@@ -586,6 +734,7 @@ public class PlayerService extends Service {
     }
   }
   public void toggle() {
+    if (!ready && index >= 0 && !YouTubeLink.id(tracks.get(index).uri.toString()).isEmpty()) { browser().playQueued(tracks.get(index).uri.toString()); return; }
     if (ready) {
       if (player.isPlaying())
         pause();
@@ -763,6 +912,8 @@ public class PlayerService extends Service {
     }, 60000);
   }
   public synchronized void closeRoom() {
+    stopCapture();
+    if (capture != null) { capture.close(); capture = null; }
     room = false;
     tunnelGeneration++;
     if (tunnel != null) {
@@ -784,6 +935,7 @@ public class PlayerService extends Service {
     ready = false;
     cancelImport.set(true);
     library.shutdownNow();
+    lyricsWorker.shutdownNow();
     if (noisy != null)
       unregisterReceiver(noisy);
     if (browser != null)
